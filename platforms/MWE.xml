@@ -1,0 +1,71 @@
+<?xml version='1.0'?>
+<!DOCTYPE platform SYSTEM "https://simgrid.org/simgrid.dtd">
+<platform version="4.1">
+   <zone id="root" routing="Full">
+    <zone id="A" routing="Full">
+      <cluster id="A1" prefix="a1-" suffix=".fr"
+               radical="0-2"
+               speed="1Tf" bw="200Gbps" lat="2us"/>
+
+      <cluster id="A2" prefix="a2-" suffix=".fr"
+               radical="0-2"
+               speed="1Tf" bw="200Gbps" lat="2us"/>
+
+      <zone id="A_gw" routing="Full">
+        <router id="A_gateway"/>
+      </zone>
+
+      <link id="A_gateway_link" bandwidth="200Gbps" latency="2us"/>
+      <link id="A1_A2_link" bandwidth="200Gbps" latency="2us"/> 
+      <link id="A1_gw_link"    bandwidth="200Gbps" latency="2us"/> 
+      <link id="A2_gw_link"    bandwidth="200Gbps" latency="2us"/>
+
+      <zoneRoute src="A1" dst="A2" 
+                 gw_src="a1-A1_router.fr" gw_dst="a2-A2_router.fr">
+        <link_ctn id="A1_A2_link"/>
+      </zoneRoute>
+      <zoneRoute src="A1" dst="A_gw" gw_src="a1-A1_router.fr" gw_dst="A_gateway">
+        <link_ctn id="A1_gw_link"/>
+      </zoneRoute>
+      <zoneRoute src="A2" dst="A_gw" gw_src="a2-A2_router.fr" gw_dst="A_gateway">
+        <link_ctn id="A2_gw_link"/>
+      </zoneRoute>
+    </zone>
+
+    <zone id="B" routing="Full">
+      <cluster id="B1" prefix="b1-" suffix=".fr"
+               radical="0-2"
+               speed="1Tf" bw="200Gbps" lat="2us"/>
+
+      <cluster id="B2" prefix="b2-" suffix=".fr"
+               radical="0-2"
+               speed="1Tf" bw="200Gbps" lat="2us"/>
+
+      <zone id="B_gw" routing="Full">
+        <router id="B_gateway"/>
+      </zone>
+
+      <link id="B_gateway_link" bandwidth="200Gbps" latency="2us"/>
+      <link id="B1_B2_link" bandwidth="200Gbps" latency="2us"/> 
+      <link id="B1_gw_link"    bandwidth="200Gbps" latency="2us"/> 
+      <link id="B2_gw_link"    bandwidth="200Gbps" latency="2us"/>
+
+      <zoneRoute src="B1" dst="B2" 
+                 gw_src="b1-B1_router.fr" gw_dst="b2-B2_router.fr">
+        <link_ctn id="B1_B2_link"/>
+      </zoneRoute>
+      <zoneRoute src="B1" dst="B_gw" gw_src="b1-B1_router.fr" gw_dst="B_gateway">
+        <link_ctn id="B1_gw_link"/>
+      </zoneRoute>
+      <zoneRoute src="B2" dst="B_gw" gw_src="b2-B2_router.fr" gw_dst="B_gateway">
+        <link_ctn id="B2_gw_link"/>
+      </zoneRoute>
+    </zone>   
+
+    <link id="A-B" bandwidth="200Gbps" latency="2us"/>
+
+    <zoneRoute src="A" dst="B" gw_src="A_gateway" gw_dst="B_gateway">
+      <link_ctn id="A-B"/>
+    </zoneRoute>
+  </zone>   
+ </platform>

@@ -1,0 +1,150 @@
+<?xml version='1.0'?>
+<!DOCTYPE platform SYSTEM "https://simgrid.org/simgrid.dtd">
+<platform version="4.1">
+  <zone id="AmSC" routing="Floyd">
+    <zone id="ESNet" routing="Floyd">
+        <router id="doe"/>
+        <router id="anl"/>
+        <router id="lbnl"/>
+        <router id="ornl"/>
+        
+        <link id="doe_anl" bandwidth="100Gbps" latency="10us"/>
+        <link id="doe_lbnl" bandwidth="100Gbps" latency="10us"/>
+        <link id="doe_ornl" bandwidth="100Gbps" latency="10us"/>
+
+        <link id="anl_lbnl" bandwidth="100Gbps" latency="10us"/>
+        <link id="anl_ornl" bandwidth="100Gbps" latency="10us"/>
+        <link id="lbnl_ornl" bandwidth="100Gbps" latency="10us"/>
+        
+        <route src="doe" dst="anl"><link_ctn id="doe_anl"/></route>
+        <route src="doe" dst="lbnl"><link_ctn id="doe_lbnl"/></route>
+        <route src="doe" dst="ornl"><link_ctn id="doe_ornl"/></route>
+        
+        <route src="anl" dst="lbnl"><link_ctn id="anl_lbnl"/></route>
+        <route src="anl" dst="ornl"><link_ctn id="anl_ornl"/></route>
+        <route src="lbnl" dst="ornl"><link_ctn id="lbnl_ornl"/></route>
+    </zone>
+
+    <!-- The host on which the Workload Submission Agent will run -->
+    <zone id="DOE" routing="Full">
+      <host id="WSAgent" speed="10Gf"/>
+      <router id="DOE_gateway"/>
+      <link id="DOE_gateway_link" bandwidth="200Gbps" latency="2us"/>
+    </zone>
+
+    <zone id="ALCF" routing="Full">
+      <!-- Aurora at ALCF -->
+      <cluster id="Aurora" prefix="aurora-" suffix=".alcf.gov"
+               radical="0-10624" 
+               speed="312Tf" bw="200Gbps" lat="2us"/>
+
+      <!-- Crux at ALCF -->
+      <cluster id="Crux" prefix="crux-" suffix=".alcf.gov"
+               radical="0-256"
+               speed="5Tf" bw="200Gbps" lat="2us"/>
+      
+      <zone id="ALCF_gw" routing="Full">
+        <router id="ALCF_gateway"/>
+      </zone>
+
+      <link id="ALCF_gateway_link" bandwidth="200Gbps" latency="2us"/>
+
+      <link id="Aurora_Crux_link" bandwidth="200Gbps" latency="2us"/> 
+      <link id="Aurora_out_link"    bandwidth="200Gbps" latency="2us"/> 
+      <link id="Crux_out_link"    bandwidth="200Gbps" latency="2us"/>
+
+      <zoneRoute src="Aurora" dst="Crux" gw_src="aurora-Aurora_router.alcf.gov" gw_dst="crux-Crux_router.alcf.gov">
+        <link_ctn id="Aurora_Crux_link"/>
+      </zoneRoute>
+      <zoneRoute src="Aurora" dst="ALCF_gw" gw_src="aurora-Aurora_router.alcf.gov" gw_dst="ALCF_gateway">
+        <link_ctn id="Aurora_out_link"/>
+      </zoneRoute>
+      <zoneRoute src="Crux" dst="ALCF_gw" gw_src="crux-Crux_router.alcf.gov" gw_dst="ALCF_gateway">
+        <link_ctn id="Crux_out_link"/>
+      </zoneRoute>
+    </zone> 
+
+    <zone id="NERSC" routing="Full">
+      <!-- Perlmutter (Phase 1, GPU nodes) at NERSC -->
+      <cluster id="Perlmutter-Phase-1" prefix="perlmutter-gpu-" suffix=".nersc.gov"
+               radical="0-1536"
+               speed="4Tf" bw="200Gbps" lat="2us"/>
+
+      <!-- Perlmutter (Phase 2, CPU nodes) at NERSC -->
+      <cluster id="Perlmutter-Phase-2" prefix="perlmutter-cpu-" suffix=".nersc.gov" 
+               radical="0-3072"
+               speed="4.9Tf" bw="200Gbps" lat="2us"/>
+      
+      <zone id="NERSC_gw" routing="Full">
+        <router id="NERSC_gateway"/>
+      </zone>
+
+      <link id="NERSC_gateway_link" bandwidth="200Gbps" latency="2us"/>
+
+      <link id="Phase1_Phase2_link" bandwidth="200Gbps" latency="2us"/> 
+      <link id="Phase1_out_link"    bandwidth="200Gbps" latency="2us"/> 
+      <link id="Phase2_out_link"    bandwidth="200Gbps" latency="2us"/>
+
+      <zoneRoute src="Perlmutter-Phase-1" dst="Perlmutter-Phase-2"
+             gw_src="perlmutter-gpu-Perlmutter-Phase-1_router.nersc.gov"
+             gw_dst="perlmutter-cpu-Perlmutter-Phase-2_router.nersc.gov">
+        <link_ctn id="Phase1_Phase2_link"/>
+      </zoneRoute>
+      <zoneRoute src="Perlmutter-Phase-1" dst="NERSC_gw" 
+             gw_src="perlmutter-gpu-Perlmutter-Phase-1_router.nersc.gov"
+             gw_dst="NERSC_gateway">
+        <link_ctn id="Phase1_out_link"/>
+      </zoneRoute>
+      <zoneRoute src="Perlmutter-Phase-2" dst="NERSC_gw"
+             gw_src="perlmutter-cpu-Perlmutter-Phase-2_router.nersc.gov"
+             gw_dst="NERSC_gateway">
+        <link_ctn id="Phase2_out_link"/>
+      </zoneRoute>
+    </zone> 
+
+    <zone id="OLCF" routing="Full">
+      <!-- Frontier at OLCF -->
+      <cluster id="Frontier" prefix="frontier-" suffix=".olcf.gov"
+               radical="0-9472"
+               speed="83.9Tf" bw="200Gbps" lat="2us"/>
+
+      <!-- Andes at OLCF -->
+      <cluster id="Andes" prefix="andes-" suffix=".olcf.gov"
+               radical="0-704"
+               speed="1.5Tf" bw="200Gbps" lat="2us"/>
+
+      <zone id="OLCF_gw" routing="Full">
+        <router id="OLCF_gateway"/>
+      </zone>
+
+      <link id="OLCF_gateway_link" bandwidth="200Gbps" latency="2us"/>
+      <link id="Frontier_Andes_link" bandwidth="200Gbps" latency="2us"/> 
+      <link id="Frontier_out_link"    bandwidth="200Gbps" latency="2us"/> 
+      <link id="Andes_out_link"    bandwidth="200Gbps" latency="2us"/>
+
+      <zoneRoute src="Frontier" dst="Andes" 
+                 gw_src="frontier-Frontier_router.olcf.gov" gw_dst="andes-Andes_router.olcf.gov">
+        <link_ctn id="Frontier_Andes_link"/>
+      </zoneRoute>
+      <zoneRoute src="Frontier" dst="OLCF_gw" gw_src="frontier-Frontier_router.olcf.gov" gw_dst="OLCF_gateway">
+        <link_ctn id="Frontier_out_link"/>
+      </zoneRoute>
+      <zoneRoute src="Andes" dst="OLCF_gw" gw_src="andes-Andes_router.olcf.gov" gw_dst="OLCF_gateway">
+        <link_ctn id="Andes_out_link"/>
+      </zoneRoute>
+    </zone> 
+    
+    <zoneRoute src="DOE" dst="ESNet" gw_src="DOE_gateway" gw_dst="doe">
+      <link_ctn id="DOE_gateway_link"/>
+    </zoneRoute>
+    <zoneRoute src="ALCF" dst="ESNet" gw_src="ALCF_gateway" gw_dst="anl">
+      <link_ctn id="ALCF_gateway_link"/>
+    </zoneRoute>
+    <zoneRoute src="NERSC" dst="ESNet" gw_src="NERSC_gateway" gw_dst="lbnl">
+      <link_ctn id="NERSC_gateway_link"/>
+    </zoneRoute>
+    <zoneRoute src="OLCF" dst="ESNet" gw_src="OLCF_gateway" gw_dst="ornl">
+      <link_ctn id="OLCF_gateway_link"/>
+    </zoneRoute>
+  </zone>
+</platform>

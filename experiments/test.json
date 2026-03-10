@@ -1,0 +1,7 @@
+{
+    "platform": "platforms/AmSC.xml",
+    "workload": "workloads/heterogeneous_mix_10.json",
+    "centralized_submission": false,
+    "decentralized_policy": "PythonBidding",
+    "decentralized_bidder": "python_scripts/HeuristicBidding.py"
+}

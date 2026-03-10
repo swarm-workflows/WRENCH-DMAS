@@ -1,0 +1,227 @@
+<?xml version='1.0'?>
+<!DOCTYPE platform SYSTEM "https://simgrid.org/simgrid.dtd">
+<platform version="4.1">
+  <zone id="AmSC" routing="Full">
+    <zone id="DOE" routing="Full">
+      <router id="DOE_gw"/>
+      <host id="ASCR.doe.gov" speed="10Gf" core="2"/>
+    </zone>
+
+    <!-- Aurora at ALCF -->
+    <cluster id="Aurora" prefix="aurora-" suffix=".alcf.gov"
+             radical="0-50" 
+             speed="1.5Tf" bw="200Gbps" lat="2us">
+      <prop id="site" value="ALCF"/>
+      <prop id="type" value="AI"/>
+      <prop id="memory_amount_in_gb" value="984"/>
+      <prop id="storage_amount_in_gb" value="220e6"/>
+      <prop id="has_gpu" value="True"/>
+      <prop id="network_interconnect" value="Slingshot11"/>
+    </cluster>
+
+    <!-- Crux at ALCF -->
+    <cluster id="Crux" prefix="crux-" suffix=".alcf.gov"
+             radical="0-50"
+             speed="1.5Tf" bw="200Gbps" lat="2us">
+      <prop id="site" value="ALCF"/>
+      <prop id="type" value="STORAGE"/>
+      <prop id="memory_amount_in_gb" value="512"/>
+      <prop id="storage_amount_in_gb" value="220e6"/>
+      <prop id="has_gpu" value="False"/>
+      <prop id="network_interconnect" value="Slingshot10"/>
+    </cluster>
+    
+    <!-- Perlmutter (Phase 1, GPU nodes) at NERSC -->
+    <cluster id="Perlmutter-Phase-1" prefix="perlmutter-gpu-" suffix=".nersc.gov"
+             radical="0-50"
+             speed="1.5Tf" bw="200Gbps" lat="2us">
+      <prop id="site" value="NERSC"/>
+      <prop id="type" value="HYBRID"/>
+      <prop id="memory_amount_in_gb" value="672"/>
+      <prop id="storage_amount_in_gb" value="35e6"/>
+      <prop id="has_gpu" value="True"/>
+      <prop id="network_interconnect" value="Slingshot10"/>
+    </cluster>
+
+    <!-- Perlmutter (Phase 2, CPU nodes) at NERSC -->
+    <cluster id="Perlmutter-Phase-2" prefix="perlmutter-cpu-" suffix=".nersc.gov" 
+             radical="0-50"
+             speed="1.5Tf" bw="200Gbps" lat="2us">
+      <prop id="site" value="NERSC"/>
+      <prop id="type" value="HYBRID"/>
+      <prop id="memory_amount_in_gb" value="512"/>
+      <prop id="storage_amount_in_gb" value="35e6"/>
+      <prop id="has_gpu" value="False"/>
+      <prop id="network_interconnect" value="Slingshot10"/>
+    </cluster>
+    
+    <!-- Frontier at OLCF -->
+    <cluster id="Frontier" prefix="frontier-" suffix=".olcf.gov"
+             radical="0-50"
+             speed="1.5Tf" bw="200Gbps" lat="2us">
+      <prop id="site" value="OLCF"/>
+      <prop id="type" value="HPC"/>
+      <prop id="memory_amount_in_gb" value="12000"/>
+      <prop id="storage_amount_in_gb" value="700e6"/>
+      <prop id="has_gpu" value="True"/>
+      <prop id="network_interconnect" value="Slingshot11"/>
+    </cluster>
+
+    <!-- Andes at OLCF -->
+    <cluster id="Andes" prefix="andes-" suffix=".olcf.gov"
+             radical="0-50"
+             speed="1.5Tf" bw="200Gbps" lat="2us">
+      <prop id="site" value="OLCF"/>
+      <prop id="type" value="STORAGE"/>
+      <prop id="memory_amount_in_gb" value="256"/>
+      <prop id="storage_amount_in_gb" value="700e6"/>
+      <prop id="has_gpu" value="False"/>
+      <prop id="network_interconnect" value="HDR InfiniBand"/>
+    </cluster>
+  
+    <link id="DOE_link" bandwidth="200Gbps" latency="2us"/>
+
+    <link id="Aurora_link" bandwidth="200Gbps" latency="2us"/> 
+    <link id="Crux_link" bandwidth="200Gbps" latency="2us"/> 
+    <link id="Phase1_link" bandwidth="200Gbps" latency="2us"/> 
+    <link id="Phase2_link" bandwidth="200Gbps" latency="2us"/> 
+    <link id="Frontier_link" bandwidth="200Gbps" latency="2us"/> 
+    <link id="Andes_link" bandwidth="200Gbps" latency="2us"/> 
+
+    <link id="ALCF_NERSC_link" bandwidth="100Gbps" latency="1us"/> 
+    <link id="ALCF_OLCF_link" bandwidth="100Gbps" latency="1us"/> 
+    <link id="NERSC_OLCF_link" bandwidth="100Gbps" latency="1us"/> 
+
+    <zoneRoute src="Aurora" dst="Crux" gw_src="aurora-Aurora_router.alcf.gov" gw_dst="crux-Crux_router.alcf.gov">
+      <link_ctn id="Aurora_link"/>
+      <link_ctn id="Crux_link"/>
+    </zoneRoute>
+
+    <zoneRoute src="Aurora" dst="Perlmutter-Phase-1" 
+               gw_src="aurora-Aurora_router.alcf.gov" gw_dst="perlmutter-gpu-Perlmutter-Phase-1_router.nersc.gov">
+      <link_ctn id="Aurora_link"/>
+      <link_ctn id="ALCF_NERSC_link"/>
+      <link_ctn id="Phase1_link"/>
+    </zoneRoute>
+    <zoneRoute src="Aurora" dst="Perlmutter-Phase-2" 
+               gw_src="aurora-Aurora_router.alcf.gov" gw_dst="perlmutter-cpu-Perlmutter-Phase-2_router.nersc.gov">
+      <link_ctn id="Aurora_link"/>
+      <link_ctn id="ALCF_NERSC_link"/>
+      <link_ctn id="Phase2_link"/>
+    </zoneRoute>
+    
+    <zoneRoute src="Aurora" dst="Frontier" 
+               gw_src="aurora-Aurora_router.alcf.gov" gw_dst="frontier-Frontier_router.olcf.gov">
+      <link_ctn id="Aurora_link"/>
+      <link_ctn id="ALCF_OLCF_link"/>
+      <link_ctn id="Frontier_link"/>
+    </zoneRoute>
+    <zoneRoute src="Aurora" dst="Andes" 
+               gw_src="aurora-Aurora_router.alcf.gov" gw_dst="andes-Andes_router.olcf.gov">
+      <link_ctn id="Aurora_link"/>
+      <link_ctn id="ALCF_OLCF_link"/>
+      <link_ctn id="Andes_link"/>
+    </zoneRoute>
+    
+    <zoneRoute src="Crux" dst="Perlmutter-Phase-1" 
+               gw_src="crux-Crux_router.alcf.gov" gw_dst="perlmutter-gpu-Perlmutter-Phase-1_router.nersc.gov">
+      <link_ctn id="Crux_link"/>
+      <link_ctn id="ALCF_NERSC_link"/>
+      <link_ctn id="Phase1_link"/>
+    </zoneRoute>
+    <zoneRoute src="Crux" dst="Perlmutter-Phase-2" 
+               gw_src="crux-Crux_router.alcf.gov" gw_dst="perlmutter-cpu-Perlmutter-Phase-2_router.nersc.gov">
+      <link_ctn id="Crux_link"/>
+      <link_ctn id="ALCF_NERSC_link"/>
+      <link_ctn id="Phase2_link"/>
+    </zoneRoute>
+    
+    <zoneRoute src="Crux" dst="Frontier" 
+               gw_src="crux-Crux_router.alcf.gov" gw_dst="frontier-Frontier_router.olcf.gov">
+      <link_ctn id="Crux_link"/>
+      <link_ctn id="ALCF_OLCF_link"/>
+      <link_ctn id="Frontier_link"/>
+    </zoneRoute>
+    <zoneRoute src="Crux" dst="Andes" 
+               gw_src="crux-Crux_router.alcf.gov" gw_dst="andes-Andes_router.olcf.gov">
+      <link_ctn id="Aurora_link"/>
+      <link_ctn id="ALCF_OLCF_link"/>
+      <link_ctn id="Andes_link"/>
+    </zoneRoute>
+
+    <zoneRoute src="Perlmutter-Phase-1" dst="Perlmutter-Phase-2"
+               gw_src="perlmutter-gpu-Perlmutter-Phase-1_router.nersc.gov"
+               gw_dst="perlmutter-cpu-Perlmutter-Phase-2_router.nersc.gov">
+      <link_ctn id="Phase1_link"/>
+      <link_ctn id="Phase2_link"/>
+    </zoneRoute>
+
+    <zoneRoute src="Perlmutter-Phase-1" dst="Frontier"
+               gw_src="perlmutter-gpu-Perlmutter-Phase-1_router.nersc.gov"
+               gw_dst="frontier-Frontier_router.olcf.gov">
+      <link_ctn id="Phase1_link"/>
+      <link_ctn id="NERSC_OLCF_link"/>
+      <link_ctn id="Frontier_link"/>
+    </zoneRoute>
+    <zoneRoute src="Perlmutter-Phase-1" dst="Andes"
+               gw_src="perlmutter-gpu-Perlmutter-Phase-1_router.nersc.gov"
+               gw_dst="andes-Andes_router.olcf.gov">
+      <link_ctn id="Phase1_link"/>
+      <link_ctn id="NERSC_OLCF_link"/>
+      <link_ctn id="Andes_link"/>
+    </zoneRoute>
+
+    <zoneRoute src="Perlmutter-Phase-2" dst="Frontier"
+               gw_src="perlmutter-cpu-Perlmutter-Phase-2_router.nersc.gov"
+               gw_dst="frontier-Frontier_router.olcf.gov">
+      <link_ctn id="Phase2_link"/>
+      <link_ctn id="NERSC_OLCF_link"/>
+      <link_ctn id="Frontier_link"/>
+    </zoneRoute>
+    <zoneRoute src="Perlmutter-Phase-2" dst="Andes"
+               gw_src="perlmutter-cpu-Perlmutter-Phase-2_router.nersc.gov"
+               gw_dst="andes-Andes_router.olcf.gov">
+      <link_ctn id="Phase2_link"/>
+      <link_ctn id="NERSC_OLCF_link"/>
+      <link_ctn id="Andes_link"/>
+    </zoneRoute>
+
+    <zoneRoute src="Frontier" dst="Andes" 
+               gw_src="frontier-Frontier_router.olcf.gov" gw_dst="andes-Andes_router.olcf.gov">
+      <link_ctn id="Frontier_link"/>
+      <link_ctn id="Andes_link"/>
+    </zoneRoute>
+    
+    <zoneRoute src="DOE" dst="Aurora" gw_src="DOE_gw" gw_dst="aurora-Aurora_router.alcf.gov">
+      <link_ctn id="DOE_link"/>
+      <link_ctn id="Aurora_link"/>
+    </zoneRoute>
+
+    <zoneRoute src="DOE" dst="Crux" gw_src="DOE_gw" gw_dst="crux-Crux_router.alcf.gov">
+      <link_ctn id="DOE_link"/>
+      <link_ctn id="Crux_link"/>
+    </zoneRoute>
+
+    <zoneRoute src="DOE" dst="Perlmutter-Phase-1" 
+               gw_src="DOE_gw" gw_dst="perlmutter-gpu-Perlmutter-Phase-1_router.nersc.gov">
+      <link_ctn id="DOE_link"/>
+      <link_ctn id="Phase1_link"/>
+    </zoneRoute>
+    <zoneRoute src="DOE" dst="Perlmutter-Phase-2" 
+               gw_src="DOE_gw" gw_dst="perlmutter-cpu-Perlmutter-Phase-2_router.nersc.gov">
+      <link_ctn id="DOE_link"/>
+      <link_ctn id="Phase2_link"/>
+    </zoneRoute>
+    
+    <zoneRoute src="DOE" dst="Frontier" 
+               gw_src="DOE_gw" gw_dst="frontier-Frontier_router.olcf.gov">
+      <link_ctn id="DOE_link"/>
+      <link_ctn id="Frontier_link"/>
+    </zoneRoute>
+    <zoneRoute src="DOE" dst="Andes" 
+               gw_src="DOE_gw" gw_dst="andes-Andes_router.olcf.gov">
+      <link_ctn id="DOE_link"/>
+      <link_ctn id="Andes_link"/>
+    </zoneRoute>
+  </zone>
+</platform>
