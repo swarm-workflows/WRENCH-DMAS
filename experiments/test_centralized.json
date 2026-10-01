@@ -1,6 +1,6 @@
 {
     "platform": "platforms/AmSC.xml",
-    "workload": "workloads/heterogeneous_mix_10.json",
+    "workload": "workloads/idle_only_large_long_100.json",
     "centralized_submission": true,
-    "centralized_policy": "python_scripts/CentralizedScheduling.py"
+    "centralized_policy": "python_scripts/HeuristicBidding.py"
 }

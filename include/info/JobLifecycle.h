@@ -24,6 +24,7 @@ class JobLifecycle {
 
   std::string final_status_;
   std::string failure_cause_ = "None";
+  std::string node_list_;
 
 public:
   JobLifecycle(int job_id, const std::string& submitted_to, double submission_time)
@@ -74,6 +75,7 @@ public:
 
   void set_final_status(const std::string& status) { final_status_ = status; }
   void set_failure_cause(const std::string& cause) { failure_cause_ = cause; }
+  void set_node_list(const std::string& node_list) { node_list_ = node_list; }
 
   double get_decision_time() const { return decision_time_; }
   double get_waiting_time() const { return waiting_time_; }
@@ -83,10 +85,10 @@ public:
   std::string export_to_csv() const
   {
     std::ostringstream oss;
-    oss << job_id_ << ",\"" << final_status_ << "\",\"" << submitted_to_ << "\",\"" << scheduled_on_ << "\","
-        << submission_time_ << "," << scheduling_time_ << "," << start_time_ << "," << end_time_ << ","
-        << decision_time_ << "," << waiting_time_ << "," << execution_time_ << "," << bids_ << ",\"" << failure_cause_
-        << "\"";
+    oss << job_id_ << ",\"" << final_status_ << "\",\"" << submitted_to_ << "\",\"" << scheduled_on_ << "\",\""
+        << node_list_ << "\"," << submission_time_ << "," << scheduling_time_ << "," << start_time_ << ","
+        << end_time_ << "," << decision_time_ << "," << waiting_time_ << "," << execution_time_ << "," << bids_
+        << ",\"" << failure_cause_ << "\"";
     return oss.str();
   }
 };

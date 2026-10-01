@@ -1,0 +1,183 @@
+#!/usr/bin/env Rscript --vanilla
+library(grid)
+library(tools)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(gridExtra)
+
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) < 2) {
+  stop("Usage: Rscript biddingComparison.Rscript aggregated_metrics.csv output_dir")
+}
+
+aggregated_file <- args[1]
+output_dir <- args[2]
+
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+
+agg <- read.csv(aggregated_file, check.names = FALSE)
+
+results_dir <- dirname(aggregated_file)
+
+agg <- agg %>%
+  filter(mode == "decentralized") %>%
+  mutate(
+    workload = paste(day, workload_type, num_jobs, sep = "_"),
+    scenario_prefix = paste(day, workload_type, num_jobs, paste0("rho", rho), sep = "_")
+  )
+
+read_raw_jobs <- function(row) {
+  file <- file.path(
+    results_dir,
+    paste0(row$scenario_prefix, "_", row$strategy, ".csv")
+  )
+
+  if (!file.exists(file)) {
+    warning("Missing raw results file: ", file)
+    return(NULL)
+  }
+
+  df <- read.csv(file, check.names = FALSE)
+
+  required <- c("SubmissionTime", "EndTime", "DecisionTime", "WaitingTime")
+  missing <- setdiff(required, names(df))
+
+  if (length(missing) > 0) {
+    warning("Skipping ", file, "; missing columns: ", paste(missing, collapse = ", "))
+    return(NULL)
+  }
+
+  df %>%
+    mutate(
+      strategy = row$strategy,
+      workload = row$workload,
+      scenario_prefix = row$scenario_prefix,
+      TurnaroundTime = EndTime - SubmissionTime
+    ) %>%
+    select(strategy, workload, scenario_prefix,
+           DecisionTime, WaitingTime, TurnaroundTime)
+}
+
+make_fig_title <- function(row) {
+  day_label <- case_when(
+    row$day == "business" ~ "Business-day",
+    row$day == "bursty_low_stress" ~ "Bursty low stress",
+    row$day == "bursty_high_stress" ~ "Bursty high stress",
+    TRUE ~ tools::toTitleCase(gsub("_", " ", row$day))
+  )
+
+  workload_label <- gsub("_", "-", row$workload_type)
+
+  paste(
+    day_label,
+    "|",
+    workload_label,
+    "|",
+    paste(row$num_jobs, "jobs"),
+    "|",
+    paste0("rho=", row$rho)
+  )
+}
+
+for (w in unique(agg$workload)) {
+  subset_agg <- agg %>% filter(workload == w)
+  fig_title <- make_fig_title(subset_agg[1, ])
+
+  raw_jobs <- bind_rows(
+    lapply(seq_len(nrow(subset_agg)), function(i) read_raw_jobs(subset_agg[i, ]))
+  )
+
+  if (nrow(raw_jobs) == 0) {
+    warning("No raw job data found for workload: ", w)
+    next
+  }
+
+  strategy_order <- subset_agg %>%
+    arrange(strategy) %>%
+    pull(strategy)
+
+  subset_agg$strategy <- factor(subset_agg$strategy, levels = strategy_order)
+  raw_jobs$strategy <- factor(raw_jobs$strategy, levels = strategy_order)
+
+  p_makespan <- ggplot(
+    subset_agg,
+    aes(x = strategy, y = makespan_seconds, fill = strategy)
+  ) +
+    geom_col() +
+    theme_bw() +
+    labs(
+      title = "Makespan",
+      x = "Bidding method",
+      y = "Makespan (seconds)"
+    ) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "none"
+    )
+
+  metric_data <- raw_jobs %>%
+    pivot_longer(
+      cols = c(DecisionTime, WaitingTime, TurnaroundTime),
+      names_to = "Metric",
+      values_to = "Value"
+    )
+
+  make_boxplot <- function(metric_name, title_text, y_label) {
+    ggplot(
+      metric_data %>% filter(Metric == metric_name),
+      aes(x = strategy, y = Value, fill = strategy)
+    ) +
+
+      geom_boxplot(outlier.alpha = 0.4) +
+
+      stat_summary(
+      fun = median,
+      geom = "point",
+      size = 3,
+      shape = 18,
+      color = "black"
+      ) +
+
+      theme_bw() +
+      labs(
+        title = title_text,
+        x = "Bidding method",
+        y = y_label
+      ) +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none"
+      )
+  }
+
+  p_decision <- make_boxplot("DecisionTime", "Decision time", "Decision time")
+  p_waiting <- make_boxplot("WaitingTime", "Waiting time", "Waiting time")
+  p_turnaround <- make_boxplot("TurnaroundTime", "Turnaround time", "Turnaround time")
+
+  output_file <- file.path(output_dir, paste0(w, "_bidding_comparison.pdf"))
+
+  combined <- arrangeGrob(
+  p_makespan,
+  p_decision,
+  p_waiting,
+  p_turnaround,
+  ncol = 2,
+  top = textGrob(
+    fig_title,
+    gp = gpar(fontsize = 16)
+  )
+)
+
+  ggsave(
+    output_file,
+    plot = combined,
+    device = cairo_pdf,
+    width = 14,
+    height = 10,
+    dpi = 300
+  )
+
+  cat("Saved:", output_file, "\n")
+}

@@ -5,6 +5,7 @@
 #include <wrench-dev.h>
 
 #include "info/HPCSystemDescription.h"
+#include "info/JobDescription.h"
 #include "policies/SchedulingPolicy.h"
 
 namespace wrench {
@@ -29,6 +30,7 @@ class JobSchedulingAgent : public ExecutionController {
   void processEventCompoundJobCompletion(const std::shared_ptr<CompoundJobCompletedEvent>& event) override;
   void processEventCompoundJobFailure(const std::shared_ptr<CompoundJobFailedEvent>& event) override;
   void processEventTimer(const std::shared_ptr<wrench::TimerEvent>& event) override;
+  void build_and_submit_job(int job_id, const std::shared_ptr<JobDescription>& job_description);
 
 public:
   JobSchedulingAgent(const std::string& hostname, const std::shared_ptr<HPCSystemDescription>& hpc_system_description,

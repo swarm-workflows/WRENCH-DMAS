@@ -1,0 +1,140 @@
+#!/usr/bin/env Rscript --vanilla
+library(grid)
+library(tools)
+library(ggplot2)
+library(readr)
+library(gridExtra)
+library(dplyr)
+
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) < 2) {
+  stop("Usage: Rscript output_analysis.Rscript input.csv output.pdf")
+}
+
+data <- read_csv(args[1], show_col_types = FALSE)
+
+input_name <- tools::file_path_sans_ext(basename(args[1]))
+parts <- strsplit(input_name, "_")[[1]]
+strategy <- tail(parts, 1)
+rho_idx <- grep("^rho", parts)
+rho <- gsub("^rho", "", parts[rho_idx])
+num_jobs <- parts[rho_idx - 1]
+workload_parts <- parts[1:(rho_idx - 2)]
+day <- workload_parts[1]
+workload <- paste(workload_parts[-1], collapse = "-")
+day <- case_when(
+  day == "business" ~ "Business-day",
+  day == "bursty" ~ "Bursty",
+  TRUE ~ tools::toTitleCase(day)
+)
+strategy <- gsub("Bidding", " bidding", strategy)
+plot_title <- paste(
+  day,
+  "|",
+  workload,
+  "|",
+  num_jobs, "jobs",
+  "|",
+  paste0("rho=", rho),
+  "|",
+  strategy
+)
+
+data <- data %>%
+  mutate(
+    SubmittedTo = gsub("\\\\-", "-", SubmittedTo),
+    ScheduledOn = gsub("\\\\-", "-", ScheduledOn)
+  )
+
+# Keep only successful/completed jobs
+data <- data %>%
+  filter(
+    !is.na(ScheduledOn),
+    ScheduledOn != "",
+    EndTime > 0,
+    ExecutionTime > 0,
+    !grepl("fail|reject|unscheduled", FinalStatus, ignore.case = TRUE)
+  )
+
+# Derived metric
+data <- data %>%
+  mutate(
+    ScheduledOn = as.factor(ScheduledOn),
+    TurnaroundTime = EndTime - SubmissionTime
+  )
+
+p1 <- ggplot(data, aes(x = SubmittedTo, fill = SubmittedTo)) +
+  geom_bar() +
+  ggtitle("Submitted To Distribution") +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 13, face = "bold"),
+    legend.position = "none"
+  )
+
+p2 <- ggplot(data, aes(x = ScheduledOn, fill = ScheduledOn)) +
+  geom_bar() +
+  ggtitle("Scheduled On Distribution") +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 13, face = "bold"),
+    legend.position = "none"
+  )
+
+make_boxplot <- function(df, y_col, title_text, y_label) {
+
+  p <- ggplot(df, aes(x = "", y = .data[[y_col]])) +
+
+    geom_boxplot(
+      fill = "steelblue",
+      outlier.alpha = 0.4
+    ) +
+
+    stat_summary(
+      fun = median,
+      geom = "point",
+      size = 3,
+      shape = 18,
+      color = "black"
+    ) +
+
+    ggtitle(title_text) +
+
+    labs(y = y_label, x = NULL) +
+
+    theme_bw() +
+
+    theme(
+      plot.title = element_text(size = 13, face = "bold"),
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank()
+    )
+
+  return(p)
+}
+
+p3 <- make_boxplot(data, "DecisionTime", "Decision Time", "Decision Time (seconds)")
+p4 <- make_boxplot(data, "WaitingTime", "Waiting Time", "Waiting Time (seconds)")
+p5 <- make_boxplot(data, "TurnaroundTime", "Turnaround Time", "Turnaround Time (seconds)")
+p6 <- make_boxplot(data, "ExecutionTime", "Execution Time", "Execution Time (seconds)")
+
+title_grob <- textGrob(
+  plot_title,
+  gp = gpar(fontsize = 18)
+)
+
+combined <- arrangeGrob(
+  p1, p2, p3,
+  p4, p5, p6,
+  ncol = 3,
+  top = title_grob
+)
+
+pdf(args[2], width = 16, height = 10)
+grid.draw(combined)
+dev.off()
+
+cat("Saved to", args[2], "\n")

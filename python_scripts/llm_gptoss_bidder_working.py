@@ -37,46 +37,25 @@ def main():
         job_description = data["job_description"]
         system_description = data["hpc_system_description"]
         system_status = data["hpc_system_status"]
+        runtime_prompt = data.get("prompt")
 
         # Start timing
         start_time = time.perf_counter()
 
         # Do not modify before here
         # Step1: Prompt instructions
-        prompt = f"""
-                You are an HPC_RESOURCE agent, managing a massive supercomputer cluster in a decentralized resource allocation system. 
-                IMPORTANT:
-                - The fields hpc_site and hpc_system in JOB_REQUEST indicate only where the job was SUBMITTED (origin), NOT where it must run.
-                - You MUST NOT reward or penalize this system just because its site/system matches or differs from the job’s origin.
+        if not isinstance(runtime_prompt, str) or not runtime_prompt.strip():
+            raise ValueError("No prompt provided. Set 'bidder_prompt_file' in the experiment config.")
 
-
-                JOB_REQUEST (MASSIVE SCALE):
-                {
-                    job_description
-                }
-
-                SYSTEM CAPABILITIES:
-                {
-                    system_description,
-                }
-
-                SYSTEM STATUS:
-                {
-                    system_status
-                }
-
-                TASK:
-                1. Evaluate the incoming job request above.
-                2. Compute your resource-job suitability score [0-1] based on system capabilites and status.
-                3. Share your reasoning and score in JSON block:
-                        {{
-                            "bid_score": <value>
-                            "reasoning": "<justification>"
-
-                        }}
-                """
+        prompt_text = (
+            runtime_prompt
+            .replace("{job_description}", json.dumps(job_description, indent=2))
+            .replace("{system_description}", json.dumps(system_description, indent=2))
+            .replace("{system_status}", json.dumps(system_status, indent=2))
+        )
         # Log prompt for debugging
-        logger.debug(f"Prompt: {prompt}")
+        logger.info(f"Prompt:\n{prompt_text}")
+        print(f"GPTOSS_PROMPT:\n{prompt_text}", file=sys.stderr, flush=True)
         
         
         client = openai.OpenAI(
@@ -88,7 +67,7 @@ def main():
         # Step3: Get completion
         prompt = [
             {"role":"assistant","content":"You are a helpful assistant"},
-            {"role":"user","content":prompt}]
+            {"role":"user","content":prompt_text}]
         response = client.chat.completions.create(model=SAMBASTUDIO_MODEL,
                                                     messages=prompt, 
                                                     temperature=0, 
@@ -101,7 +80,8 @@ def main():
         logger.info(json.dumps({"error": str(e)}))
 
     # Log response for debugging
-    logger.debug(f"Response: {response}")
+    logger.info(f"Response:\n{response}")
+    print(f"GPTOSS_RESPONSE:\n{response}", file=sys.stderr, flush=True)
 
     # End timing
     end_time = time.perf_counter()

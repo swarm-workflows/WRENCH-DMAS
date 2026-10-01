@@ -1,4 +1,5 @@
 #include <fstream>
+#include <filesystem>
 #include <iostream>
 #include <simgrid/s4u/Host.hpp>
 #include <wrench.h>
@@ -42,6 +43,28 @@ int main(int argc, char** argv)
   std::string centralized_policy       = j.value("centralized_policy", "");
   std::string decentralized_policy     = j.value("decentralized_policy", "PureLocal");
   std::string decentralized_bidder     = j.value("decentralized_bidder", "");
+  std::string bidder_prompt_file       = j.value("bidder_prompt_file", "");
+  if (!bidder_prompt_file.empty()) {
+    std::error_code ec;
+    std::filesystem::path prompt_path(bidder_prompt_file);
+    if (!std::filesystem::exists(prompt_path, ec) && prompt_path.is_relative()) {
+      auto experiment_path      = std::filesystem::absolute(std::filesystem::path(argv[1]), ec);
+      auto experiment_dir       = experiment_path.parent_path();
+      auto from_experiment      = experiment_dir / prompt_path;
+      auto executable_path      = std::filesystem::absolute(std::filesystem::path(argv[0]), ec);
+      auto executable_dir       = executable_path.parent_path();
+      auto from_repo_parent     = executable_dir.parent_path() / prompt_path;
+      auto from_current_parent  = std::filesystem::current_path(ec).parent_path() / prompt_path;
+
+      if (std::filesystem::exists(from_experiment, ec))
+        prompt_path = from_experiment;
+      else if (std::filesystem::exists(from_repo_parent, ec))
+        prompt_path = from_repo_parent;
+      else if (std::filesystem::exists(from_current_parent, ec))
+        prompt_path = from_current_parent;
+    }
+    bidder_prompt_file = prompt_path.string();
+  }
 
   // Initialize the simulation.
   auto simulation = wrench::Simulation::createSimulation();
@@ -73,7 +96,8 @@ int main(int argc, char** argv)
     // In centralized mode, use PureLocal since the centralized agent already made the decision
     auto scheduling_policy =
         centralized_submission ? SchedulingPolicy::create_scheduling_policy("PureLocal", "")
-                               : SchedulingPolicy::create_scheduling_policy(decentralized_policy, decentralized_bidder);
+                   : SchedulingPolicy::create_scheduling_policy(decentralized_policy, decentralized_bidder,
+                                         bidder_prompt_file);
 
     // Instantiate a job scheduling agent on the head node of this HPC system
     auto new_agent = simulation->add(

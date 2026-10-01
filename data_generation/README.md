@@ -1,18 +1,24 @@
-# Synthetic HPC Job Generator v3
+# Synthetic HPC Job Generator v4
 
-Advanced workload generator for multi-site HPC simulation with realistic job characteristics, GPU-aware system routing, and timezone-based submission patterns.
+Generate heterogeneous workloads (HPC, AI, HYBRID, STORAGE) for multi-site HPC simulation with realistic job characteristics, GPU-aware system routing, and timezone-based submission patterns.
 
-## Quick Start
+## Basic Usage
 
 ```bash
-# Generate 100 jobs with default settings (busy day, 80% short jobs, identical #jobs across sites, job type proportion {"HPC":0.3,"AI":0.3,"HYBRID":0.25,"STORAGE":0.15})
-python job_generation.py
+# Busy day, Full platform, default scenario mixed_80_20
+python data_generation/job_generation.py --arrival_pattern busy
 
-# Generate 1000 jobs with custom scenario
-python job_generation.py --n_jobs 1000 --scenario only_large_long --day idle
+# Busy day (default timezones), scaled platform
+python data_generation/job_generation.py --sfactor 32 --arrival_pattern busy --scenario homogeneous_short
 
-# Custom site distribution
-python job_generation.py --n_jobs 300 --jobs_per_site '{"OLCF":150,"ALCF":100,"NERSC":50}'
+# Bursty low stress
+python data_generation/job_generation.py --sfactor 32 --arrival_pattern bursty_low_stress --scenario homogeneous_short
 
-# Custom job type proportions
-python job_generation.py --jobtype_proportions '{"HPC":0.4,"AI":0.4,"HYBRID":0.15,"STORAGE":0.05}'
+# Bursty high stress (same mixture, earlier 2nd peak)
+python data_generation/job_generation.py --sfactor 32 --arrival_pattern bursty_high_stress --scenario homogeneous_short
+
+# Force all sites to burst at same global time
+python data_generation/job_generation.py --sfactor 32 --arrival_pattern bursty_high_stress --scenario homogeneous_short --sync-sites
+
+# Custom job-type proportions
+python data_generation/job_generation.py --arrival_pattern busy --jobtype_proportions '{"HPC":0.3,"AI":0.3,"HYBRID":0.25,"STORAGE":0.15}'

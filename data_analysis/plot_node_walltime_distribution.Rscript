@@ -1,0 +1,248 @@
+#!/usr/bin/env Rscript --vanilla
+required_packages <- c("ggplot2", "jsonlite")
+missing_packages <- required_packages[
+  !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    "Missing R packages: ",
+    paste(missing_packages, collapse = ", "),
+    ". Install them with install.packages(c(",
+    paste(sprintf('"%s"', missing_packages), collapse = ", "),
+    ")).",
+    call. = FALSE
+  )
+}
+
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(jsonlite)
+})
+
+# Edit these values for the plot you want to generate.
+DEFAULT_RHO <- "1.5"
+DEFAULT_DATA_DIR <- "data_generation/data"
+DEFAULT_ARRIVAL_PATTERN <- "bursty_low_stress"
+DEFAULT_OUTPUT <- NULL
+DEFAULT_POINT_SIZE <- 2.2
+DEFAULT_POINT_ALPHA <- 0.45
+DEFAULT_JOB_TYPE_COLORS <- c(
+  HPC = "#0072B2",
+  AI = "#D55E00",
+  HYBRID = "#009E73",
+  STORAGE = "#CC79A7"
+)
+
+usage <- function() {
+  cat(
+    paste(
+      "Usage:",
+      "  Rscript data_analysis/plot_node_walltime_distribution.Rscript \\",
+      "    --rho 1.5 \\",
+      "    [--arrival-pattern business|bursty_low_stress|bursty_high_stress|all] \\",
+      "    [--data-dir data_generation/data] \\",
+      "    [--output plots/workload/node_walltime_distribution_rho1.5_business.pdf]",
+      "",
+      "Creates a 2x2 fixed-scale facet plot for:",
+      "  small_short, large_long, mixed_80_20, mixed_20_80",
+      sep = "\n"
+    )
+  )
+}
+
+args <- commandArgs(trailingOnly = TRUE)
+
+get_arg <- function(flag, default = NULL) {
+  idx <- match(flag, args)
+  if (is.na(idx)) {
+    return(default)
+  }
+  if (idx == length(args)) {
+    stop("Missing value after ", flag)
+  }
+  args[[idx + 1]]
+}
+
+if ("--help" %in% args || "-h" %in% args) {
+  usage()
+  quit(status = 0)
+}
+
+rho <- get_arg("--rho", DEFAULT_RHO)
+rho <- sub("^rho", "", rho)
+
+data_dir <- get_arg("--data-dir", DEFAULT_DATA_DIR)
+arrival_pattern <- get_arg("--arrival-pattern", DEFAULT_ARRIVAL_PATTERN)
+
+valid_arrivals <- c("business", "bursty_low_stress", "bursty_high_stress", "all")
+if (!(arrival_pattern %in% valid_arrivals)) {
+  stop("--arrival-pattern must be one of: ", paste(valid_arrivals, collapse = ", "))
+}
+
+output_file <- get_arg(
+  "--output",
+  if (is.null(DEFAULT_OUTPUT)) {
+    file.path(
+      "plots",
+      "workload",
+      paste0("node_walltime_distribution_rho", rho, "_", arrival_pattern, ".pdf")
+    )
+  } else {
+    DEFAULT_OUTPUT
+  }
+)
+
+arrival_patterns <- if (arrival_pattern == "all") {
+  c("business", "bursty_low_stress", "bursty_high_stress")
+} else {
+  arrival_pattern
+}
+
+arrival_labels <- c(
+  business = "Business day",
+  bursty_low_stress = "Bursty low stress",
+  bursty_high_stress = "Bursty high stress"
+)
+
+workload_types <- c("small_short", "large_long", "mixed_80_20", "mixed_20_80")
+workload_labels <- c(
+  small_short = "Small/short",
+  large_long = "Large/long",
+  mixed_80_20 = "Mixed 80/20",
+  mixed_20_80 = "Mixed 20/80"
+)
+
+find_workload_file <- function(arrival, workload_type, rho, data_dir) {
+  rho_pattern <- gsub(".", "[.]", rho, fixed = TRUE)
+  pattern <- paste0(
+    "^",
+    arrival,
+    "_",
+    workload_type,
+    "_[0-9]+_rho",
+    rho_pattern,
+    "\\.json$"
+  )
+
+  matches <- list.files(data_dir, pattern = pattern, full.names = TRUE)
+
+  if (length(matches) == 0) {
+    stop(
+      "No workload file found for arrival_pattern=", arrival,
+      ", workload_type=", workload_type,
+      ", rho=", rho
+    )
+  }
+
+  if (length(matches) > 1) {
+    stop(
+      "Multiple files matched arrival_pattern=", arrival,
+      ", workload_type=", workload_type,
+      ", rho=", rho,
+      ":\n",
+      paste(matches, collapse = "\n")
+    )
+  }
+
+  matches[[1]]
+}
+
+read_workload <- function(arrival, workload_type) {
+  file <- find_workload_file(arrival, workload_type, rho, data_dir)
+  df <- jsonlite::fromJSON(file)
+
+  required <- c("Nodes", "Walltime", "JobType")
+  missing <- setdiff(required, names(df))
+  if (length(missing) > 0) {
+    stop(file, " is missing required columns: ", paste(missing, collapse = ", "))
+  }
+
+  df$ArrivalPattern <- unname(arrival_labels[[arrival]])
+  df$WorkloadType <- unname(workload_labels[[workload_type]])
+  df$WorkloadPanel <- paste0(
+    unname(workload_labels[[workload_type]]),
+    " (",
+    nrow(df),
+    " jobs)"
+  )
+  df$WalltimeHours <- df$Walltime / 3600
+  df
+}
+
+plot_data <- do.call(
+  rbind,
+  lapply(arrival_patterns, function(arrival) {
+    do.call(
+      rbind,
+      lapply(workload_types, function(workload_type) {
+        read_workload(arrival, workload_type)
+      })
+    )
+  })
+)
+
+plot_data$WorkloadType <- factor(
+  plot_data$WorkloadType,
+  levels = unname(workload_labels[workload_types])
+)
+plot_data$ArrivalPattern <- factor(
+  plot_data$ArrivalPattern,
+  levels = unname(arrival_labels[arrival_patterns])
+)
+workload_panel_levels <- vapply(workload_types, function(workload_type) {
+  matching_panels <- unique(
+    plot_data$WorkloadPanel[
+      plot_data$WorkloadType == unname(workload_labels[[workload_type]])
+    ]
+  )
+  matching_panels[[1]]
+}, character(1))
+plot_data$WorkloadPanel <- factor(plot_data$WorkloadPanel, levels = workload_panel_levels)
+
+color_mapping <- if (arrival_pattern == "all") {
+  aes(color = ArrivalPattern)
+} else {
+  aes(color = JobType)
+}
+
+p <- ggplot(
+  plot_data,
+  aes(x = Nodes, y = WalltimeHours)
+) +
+  geom_point(
+    mapping = color_mapping,
+    alpha = DEFAULT_POINT_ALPHA,
+    size = DEFAULT_POINT_SIZE,
+    stroke = 0
+  )
+
+if (arrival_pattern != "all") {
+  p <- p +
+    scale_color_manual(values = DEFAULT_JOB_TYPE_COLORS)
+}
+
+p <- p +
+  facet_wrap(~WorkloadPanel, ncol = 2, scales = "free") +
+  scale_x_continuous(
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+  labs(
+    x = "Requested nodes",
+    y = "Walltime (hours)",
+    color = ifelse(arrival_pattern == "all", "Arrival pattern", "Job type")
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "grey92", color = "grey45"),
+    strip.text = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+dir.create(dirname(output_file), showWarnings = FALSE, recursive = TRUE)
+ggsave(output_file, plot = p, width = 10, height = 8, dpi = 300)
+cat("Saved:", output_file, "\n")

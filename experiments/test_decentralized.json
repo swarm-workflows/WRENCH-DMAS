@@ -1,7 +1,8 @@
 {
     "platform": "platforms/AmSC.xml",
-    "workload": "workloads/heterogeneous_mix_10.json",
+    "workload": "data_generation/data/bursty_low_stress_small_short_2880_rho0.9.json",
     "centralized_submission": false,
     "decentralized_policy": "PythonBidding",
-    "decentralized_bidder": "python_scripts/HeuristicBidding.py"
+    "decentralized_bidder": "python_scripts/llm_claude_bidder.py",
+    "bidder_prompt_file": "prompts/llm_prompt_balanced.txt"
 }

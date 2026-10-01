@@ -2,6 +2,7 @@
 #define PYTHON_BIDDING_SCHEDULING_POLICY_H
 
 #include <algorithm>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -19,11 +20,21 @@ XBT_LOG_EXTERNAL_CATEGORY(swarm_dmas);
 
 class PythonBiddingSchedulingPolicy : public SchedulingPolicy {
   std::string python_script_name_;
+  std::string bidder_prompt_;
 
 public:
-  PythonBiddingSchedulingPolicy(const std::string& python_script_name)
+  PythonBiddingSchedulingPolicy(const std::string& python_script_name, const std::string& bidder_prompt_file)
       : SchedulingPolicy(), python_script_name_(python_script_name)
   {
+    if (!bidder_prompt_file.empty()) {
+      std::ifstream prompt_file(bidder_prompt_file);
+      if (!prompt_file.is_open())
+        throw std::runtime_error("Failed to open bidder prompt file: " + bidder_prompt_file);
+
+      bidder_prompt_.assign((std::istreambuf_iterator<char>(prompt_file)), std::istreambuf_iterator<char>());
+      if (bidder_prompt_.empty())
+        throw std::runtime_error("Bidder prompt file is empty: " + bidder_prompt_file);
+    }
   }
 
   void broadcast_job_description(const std::string& agent_name,
@@ -33,7 +44,7 @@ public:
     init_num_received_bids(job_description->get_job_id());
     for (const auto& other_agent : get_job_scheduling_agent_network())
       if (agent_name != other_agent->getName())
-        other_agent->commport->dputMessage(new wrench::JobRequestMessage(job_description, false));
+        other_agent->_commport->dputMessage(new wrench::JobRequestMessage(job_description, false));
   }
 
   std::pair<double, double> compute_bid(const std::shared_ptr<JobDescription>& job_description,
@@ -75,6 +86,8 @@ public:
       j["hpc_system_description"] = hpc_system_description->to_json();
       j["hpc_system_status"]      = hpc_system_status->to_json();
       j["current_simulated_time"] = wrench::S4U_Simulation::getClock();
+      if (!bidder_prompt_.empty())
+        j["prompt"] = bidder_prompt_;
 
       std::string jsonStr = j.dump();
       write(to_python[1], jsonStr.c_str(), jsonStr.size());
@@ -113,7 +126,7 @@ public:
     // Set the number of needed bids to the size of the network of job scheduling agents
     set_num_needed_bids(get_job_scheduling_agent_network_size());
     for (const auto& other_agent : get_job_scheduling_agent_network())
-      other_agent->commport->dputMessage(new wrench::BidOnJobMessage(bidder, job_description, bid, tie_breaker));
+      other_agent->_commport->dputMessage(new wrench::BidOnJobMessage(bidder, job_description, bid, tie_breaker));
   }
 
   std::shared_ptr<wrench::JobSchedulingAgent> determine_bid_winner(

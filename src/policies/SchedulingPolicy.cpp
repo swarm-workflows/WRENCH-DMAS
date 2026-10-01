@@ -5,7 +5,8 @@
 #include <stdexcept>
 
 std::shared_ptr<SchedulingPolicy> SchedulingPolicy::create_scheduling_policy(const std::string& policy_name,
-                                                                             const std::string& python_script_name)
+                                                                             const std::string& python_script_name,
+                                                                             const std::string& bidder_prompt_file)
 {
   if (policy_name == "PureLocal")
     return std::make_shared<PureLocalSchedulingPolicy>();
@@ -13,7 +14,7 @@ std::shared_ptr<SchedulingPolicy> SchedulingPolicy::create_scheduling_policy(con
     return std::make_shared<RandomBiddingSchedulingPolicy>();
   else if (policy_name == "PythonBidding") {
     if (not python_script_name.empty())
-      return std::make_shared<PythonBiddingSchedulingPolicy>(python_script_name);
+      return std::make_shared<PythonBiddingSchedulingPolicy>(python_script_name, bidder_prompt_file);
     else
       throw std::runtime_error("Python script needed");
   } else

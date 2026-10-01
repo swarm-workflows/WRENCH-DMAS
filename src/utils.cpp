@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -108,7 +109,7 @@ std::string get_failure_cause_as_string(int failure_code)
       return "Job requires more nodes than the System has";
       break;
     case 3:
-      return "Job requires more nodes than the System has";
+      return "Job requires more memory than the System has";
       break;
     default:
       return "Unknown failure code";
@@ -118,11 +119,20 @@ std::string get_failure_cause_as_string(int failure_code)
 std::string
 get_all_bids_as_string(const std::map<std::shared_ptr<wrench::JobSchedulingAgent>, std::pair<double, double>>& all_bids)
 {
+  using BidMap = std::map<std::shared_ptr<wrench::JobSchedulingAgent>, std::pair<double, double>>;
+  std::vector<BidMap::const_iterator> ordered_bids;
+  for (auto it = all_bids.begin(); it != all_bids.end(); ++it)
+    ordered_bids.push_back(it);
+
+  std::sort(ordered_bids.begin(), ordered_bids.end(), [](const auto& a, const auto& b) {
+    return a->first->get_hpc_system_name() < b->first->get_hpc_system_name();
+  });
+
   std::ostringstream oss;
   oss << std::fixed << std::setprecision(2) << "\"";
-  for (auto it = all_bids.begin(); it != all_bids.end(); ++it) {
-    oss << it->second.first;
-    if (std::next(it) != all_bids.end())
+  for (auto it = ordered_bids.begin(); it != ordered_bids.end(); ++it) {
+    oss << (*it)->second.first;
+    if (std::next(it) != ordered_bids.end())
       oss << ":";
   }
   oss << "\"";
