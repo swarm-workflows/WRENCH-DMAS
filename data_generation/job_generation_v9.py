@@ -502,10 +502,10 @@ GLOBAL_NODE_BANDS: Dict[str, Tuple[int, int]] = {
 
 # Global node sampling config
 # For log-normal: mode = exp(mu - sigma^2) -> mu = log(mode) + sigma^2
-# desired_mode=1000 chosen so that:
-#   - mean of clipped lognormal(257, 10624) ~ 2,549 nodes (~25% of Aurora)
-#   - smaller systems (Perlmutter-Ph1, Andes) still receive ~15-21% of large jobs
-#   - sigma=0.8 gives reasonable spread without too many jobs hitting the cap
+# desired_mode=600 chosen so that:
+#   - mean of clipped lognormal(257, 10624) ~ 1,030 nodes (~10% of Aurora)
+#   - ~37% of large jobs fit on Andes (<= 704 nodes) and ~83% on Perlmutter-Ph1 (<= 1536 nodes)
+#   - sigma=0.6 keeps the spread moderate; virtually no jobs hit the 10624 cap
 NODE_SAMPLING = {
     "sigma": 0.6,
     "desired_mode": 600,
@@ -513,7 +513,7 @@ NODE_SAMPLING = {
 
 # Memory-per-node sampling config (GB per node).
 # Drawn as log-uniform over [min_gb, max_gb].
-# max_gb = 984 matches Aurora's memory_limit so no job is forced onto Frontier by memory alone.
+# max_gb = 512 fits every system's memory_limit except Andes (256 GB per node).
 MEMORY_PER_NODE_SAMPLING = {
     "min_gb": 32.0,
     "max_gb": 512.0,

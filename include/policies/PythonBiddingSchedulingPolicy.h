@@ -139,7 +139,7 @@ public:
       if (a.second != b.second)
         return a.second < b.second; // higher value wins
       else
-        return a.first < b.first; // tie-breaker: lower pointer address wins
+        return a.first < b.first; // tie-breaker: higher pointer address wins
     });
 
     return max_it->first;
