@@ -27,7 +27,7 @@ public:
                             const std::shared_ptr<JobDescription>& job_description, double bid, double tie_breaker)
   {
     // Just sends a BidOnJobMessage to itself
-    bidder->_commport->dputMessage(new wrench::BidOnJobMessage(bidder, job_description, bid, tie_breaker));
+    bidder->getCommPort()->dputMessage(new wrench::BidOnJobMessage(bidder, job_description, bid, tie_breaker));
   }
 
   std::shared_ptr<wrench::JobSchedulingAgent> determine_bid_winner(

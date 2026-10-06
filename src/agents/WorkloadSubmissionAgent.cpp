@@ -42,10 +42,10 @@ int WorkloadSubmissionAgent::main()
                                                         [job_HPCSystem](std::shared_ptr<wrench::JobSchedulingAgent> c) {
                                                           return c->get_hpc_system_name() == job_HPCSystem;
                                                         }));
-      target_job_scheduling_agent->_commport->dputMessage(new JobRequestMessage(next_job, true));
+      target_job_scheduling_agent->getCommPort()->dputMessage(new JobRequestMessage(next_job, true));
 
       // Notify the job lifecycle tracker
-      tracker_->_commport->dputMessage(
+      tracker_->getCommPort()->dputMessage(
           new JobLifecycleTrackingMessage(job_id, "WorkloadSubmissionAgent", wrench::S4U_Simulation::getClock(),
                                           JobLifecycleEventType::SUBMISSION, job_HPCSystem));
 

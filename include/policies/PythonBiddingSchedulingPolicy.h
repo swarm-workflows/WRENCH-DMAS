@@ -44,7 +44,7 @@ public:
     init_num_received_bids(job_description->get_job_id());
     for (const auto& other_agent : get_job_scheduling_agent_network())
       if (agent_name != other_agent->getName())
-        other_agent->_commport->dputMessage(new wrench::JobRequestMessage(job_description, false));
+        other_agent->getCommPort()->dputMessage(new wrench::JobRequestMessage(job_description, false));
   }
 
   std::pair<double, double> compute_bid(const std::shared_ptr<JobDescription>& job_description,
@@ -126,7 +126,7 @@ public:
     // Set the number of needed bids to the size of the network of job scheduling agents
     set_num_needed_bids(get_job_scheduling_agent_network_size());
     for (const auto& other_agent : get_job_scheduling_agent_network())
-      other_agent->_commport->dputMessage(new wrench::BidOnJobMessage(bidder, job_description, bid, tie_breaker));
+      other_agent->getCommPort()->dputMessage(new wrench::BidOnJobMessage(bidder, job_description, bid, tie_breaker));
   }
 
   std::shared_ptr<wrench::JobSchedulingAgent> determine_bid_winner(

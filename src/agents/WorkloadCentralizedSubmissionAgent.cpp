@@ -56,15 +56,15 @@ int WorkloadCentralizedSubmissionAgent::main()
 
           if (decision.target_agent == nullptr) {
             WRENCH_INFO("Job #%d cannot run on any system (all bids = 0)", job_id);
-            tracker_->_commport->dputMessage(
+            tracker_->getCommPort()->dputMessage(
                 new JobLifecycleTrackingMessage(job_id, "WorkloadCentralizedSubmissionAgent",
                                                 S4U_Simulation::getClock(),
                                                 JobLifecycleEventType::REJECT, decision.bids, "No feasible HPC system"));
           } else {
             auto selected_system = decision.target_agent->get_hpc_system_name();
             WRENCH_DEBUG("Sending Job #%d to centrally-selected system '%s'", job_id, selected_system.c_str());
-            decision.target_agent->_commport->dputMessage(new JobRequestMessage(decision.job_desc, false, true, decision.bids));
-            tracker_->_commport->dputMessage(new JobLifecycleTrackingMessage(
+            decision.target_agent->getCommPort()->dputMessage(new JobRequestMessage(decision.job_desc, false, true, decision.bids));
+            tracker_->getCommPort()->dputMessage(new JobLifecycleTrackingMessage(
                 job_id, "WorkloadCentralizedSubmissionAgent", wrench::S4U_Simulation::getClock(),
                 JobLifecycleEventType::SUBMISSION, selected_system));
           }

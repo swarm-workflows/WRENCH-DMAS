@@ -36,14 +36,14 @@ void JobSchedulingAgent::processEventCustom(const std::shared_ptr<CustomEvent>& 
 
       if (auto failure_code = do_not_pass_acceptance_tests(job_description, hpc_system_description_)) {
         WRENCH_DEBUG("Job #%d did not pass acceptance tests. Notifying the Job Lifecycle Tracker Agent", job_id);
-        tracker_->_commport->dputMessage(new JobLifecycleTrackingMessage(
+        tracker_->getCommPort()->dputMessage(new JobLifecycleTrackingMessage(
             job_id, hpc_system_description_->get_name(), wrench::S4U_Simulation::getClock(),
             JobLifecycleEventType::REJECT, job_request_message->get_bids(), get_failure_cause_as_string(failure_code)));
       } else {
         WRENCH_DEBUG("Schedule Job #%d (%lu compute nodes for %llu seconds) on '%s'", job_id,
                      job_description->get_num_nodes(), job_description->get_walltime(),
                      hpc_system_description_->get_cname());
-        tracker_->_commport->dputMessage(new JobLifecycleTrackingMessage(job_id, hpc_system_description_->get_name(),
+        tracker_->getCommPort()->dputMessage(new JobLifecycleTrackingMessage(job_id, hpc_system_description_->get_name(),
                                                                         wrench::S4U_Simulation::getClock(),
                                                                         JobLifecycleEventType::SCHEDULING,
                                                                         job_request_message->get_bids()));
@@ -111,7 +111,7 @@ void JobSchedulingAgent::processEventCustom(const std::shared_ptr<CustomEvent>& 
         if (auto failure_code = do_not_pass_acceptance_tests(job_description, hpc_system_description_)) {
           WRENCH_DEBUG("Job #%d did not pass acceptance and has failed. Notifying the Job Lifecycle Tracker Agent",
                        job_id);
-          tracker_->_commport->dputMessage(new JobLifecycleTrackingMessage(
+          tracker_->getCommPort()->dputMessage(new JobLifecycleTrackingMessage(
               job_id, hpc_system_description_->get_name(), wrench::S4U_Simulation::getClock(),
               JobLifecycleEventType::REJECT, get_all_bids_as_string(all_bids_[job_id]),
               get_failure_cause_as_string(failure_code)));
@@ -119,7 +119,7 @@ void JobSchedulingAgent::processEventCustom(const std::shared_ptr<CustomEvent>& 
           WRENCH_DEBUG("Schedule Job #%d (%lu compute nodes for %llu seconds) on '%s'", job_id,
                        job_description->get_num_nodes(), job_description->get_walltime(),
                        hpc_system_description_->get_cname());
-          tracker_->_commport->dputMessage(new JobLifecycleTrackingMessage(
+          tracker_->getCommPort()->dputMessage(new JobLifecycleTrackingMessage(
               job_id, hpc_system_description_->get_name(), wrench::S4U_Simulation::getClock(),
               JobLifecycleEventType::SCHEDULING, get_all_bids_as_string(all_bids_[job_id])));
 
@@ -138,7 +138,7 @@ void JobSchedulingAgent::processEventCompoundJobCompletion(const std::shared_ptr
 {
   auto job_id = std::stoi(event->job->getName());
   WRENCH_DEBUG("Job #%d, which I ran locally, has completed. Notifying the Job Lifecycle Tracker Agent", job_id);
-  tracker_->_commport->dputMessage(new JobLifecycleTrackingMessage(job_id, hpc_system_description_->get_name(),
+  tracker_->getCommPort()->dputMessage(new JobLifecycleTrackingMessage(job_id, hpc_system_description_->get_name(),
                                                                   wrench::S4U_Simulation::getClock(),
                                                                   JobLifecycleEventType::COMPLETION));
 }
@@ -190,7 +190,7 @@ void JobSchedulingAgent::build_and_submit_job(int job_id, const std::shared_ptr<
                                 : std::to_string(radicals[i]);
           i = j + 1;
         }
-        tracker_->_commport->dputMessage(new JobLifecycleTrackingMessage(
+        tracker_->getCommPort()->dputMessage(new JobLifecycleTrackingMessage(
             job_id, hpc_system_description_->get_name(), *start_time, JobLifecycleEventType::START, "", "",
             node_list));
       },
@@ -206,7 +206,7 @@ void JobSchedulingAgent::processEventCompoundJobFailure(const std::shared_ptr<Co
 {
   auto job_id = std::stoi(event->job->getName());
   WRENCH_DEBUG("Job #%d, which I'm running locally, has failed. Notifying the Job Lifecycle Tracker Agent", job_id);
-  tracker_->_commport->dputMessage(new JobLifecycleTrackingMessage(
+  tracker_->getCommPort()->dputMessage(new JobLifecycleTrackingMessage(
       job_id, hpc_system_description_->get_name(), wrench::S4U_Simulation::getClock(), JobLifecycleEventType::FAIL));
 }
 
