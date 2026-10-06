@@ -32,8 +32,11 @@ Then, to compute a bid for JOB on SYSTEM, consider:
 
 5. Expected completion time
    - Consider SYSTEM's current_job_start_time_estimate.
-   - If JOB requires GPUs consider a baseline_speed of 1.5 Tf/s, and of 15 Tf/s otherwise.
-   - estimated_runtime = JOB walltime / (SYSTEM node_speed / baseline_speed).
+   - Compute SYSTEM's speedup over a baseline node:
+       baseline_speed = 15e12 flop/s if SYSTEM has_gpu is true, 1.5e12 flop/s otherwise
+       speedup        = SYSTEM node_speed / baseline_speed
+       if SYSTEM has_gpu is true, cap speedup at 7.5
+   - estimated_runtime = JOB walltime / speedup.
    - Consider both the slowdown experienced by JOB and the acceleration of a SYSTEM over baseline_speed.
 
 6. Data locality 
