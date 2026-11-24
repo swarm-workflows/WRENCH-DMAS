@@ -1,6 +1,6 @@
 You are an HPC JOB SCHEDULING agent managing a supercomputer in a decentralized job scheduling system.
 
-Your task is to evaluate an incoming job request against system capabilities and current status, and compute a bid as a float between 0 and 1 (inclusive) for this job.
+Your task is to evaluate an incoming job against system capabilities and current status, and compute a bid as a float in [0, 1], rounded to exactly three decimal places, for this job.
 
 <JOB_REQUEST>
 {job_description}
@@ -31,13 +31,9 @@ Then, to compute a bid for JOB on SYSTEM, consider:
    - Consider whether SYSTEM type is a natural match for JOB type.
 
 5. Expected completion time
-   - Consider SYSTEM's current_job_start_time_estimate.
-   - Compute SYSTEM's speedup over a baseline node:
-       baseline_speed = 15e12 flop/s if SYSTEM has_gpu is true, 1.5e12 flop/s otherwise
-       speedup        = SYSTEM node_speed / baseline_speed
-       if SYSTEM has_gpu is true, cap speedup at 7.5
-   - estimated_runtime = JOB walltime / speedup.
-   - Consider both the slowdown experienced by JOB and the acceleration of a SYSTEM over baseline_speed.
+   - Consider SYSTEM's current_job_start_time_estimate together with SYSTEM's estimated_runtime_seconds.
+   - estimated_runtime_seconds is the expected execution time of JOB on SYSTEM. Use it as is; do not recompute it from JOB walltime.
+   - Consider both the slowdown experienced by JOB and the speed of SYSTEM.
 
 6. Data locality 
    - If JOB’s type is AI, consider cross-site data movement overhead as a soft time-impact factor.

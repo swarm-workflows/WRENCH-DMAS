@@ -21,6 +21,7 @@ class JobSchedulingAgent : public ExecutionController {
   std::shared_ptr<JobManager> job_manager_;
 
   std::shared_ptr<BatchComputeService> batch_compute_service_;
+  double runtime_fraction_lower_bound_;
   std::shared_ptr<JobLifecycleTrackerAgent> tracker_;
 
   std::unordered_map<int, std::map<std::shared_ptr<JobSchedulingAgent>, std::pair<double, double>>> all_bids_;
@@ -35,11 +36,13 @@ class JobSchedulingAgent : public ExecutionController {
 public:
   JobSchedulingAgent(const std::string& hostname, const std::shared_ptr<HPCSystemDescription>& hpc_system_description,
                      const std::shared_ptr<SchedulingPolicy>& scheduling_policy,
-                     const std::shared_ptr<BatchComputeService>& batch_compute_service)
+                     const std::shared_ptr<BatchComputeService>& batch_compute_service,
+                     double runtime_fraction_lower_bound)
       : ExecutionController(hostname, "job_scheduling_agent")
       , hpc_system_description_(hpc_system_description)
       , scheduling_policy_(scheduling_policy)
       , batch_compute_service_(batch_compute_service)
+      , runtime_fraction_lower_bound_(runtime_fraction_lower_bound)
   {
   }
 

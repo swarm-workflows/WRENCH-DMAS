@@ -20,10 +20,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 #################################
 
-def main():
+def process_request(input_data):
     response = ""
+    failure = None  # why the LLM bid could not be obtained, if so
     try:
-        input_data = sys.stdin.read()
         data = json.loads(input_data)
 
         job_description = data["job_description"]
@@ -64,6 +64,7 @@ def main():
         # Step3: Get completion
         response = client.invoke(prompt)
     except Exception as e:
+        failure = str(e)
         logger.info(json.dumps({"error": str(e)}))
 
     # Log response for debugging
@@ -81,16 +82,28 @@ def main():
     # Step5: Heuristic bid if parsing fails
     heuristic_bid = compute_bid(job_description, system_description, system_status)
 
-    bid = float(match.group(1)) if match else heuristic_bid
+    bid = round(float(match.group(1)), 3) if match else heuristic_bid
     logger.debug(f"Final bid score: {bid} (using {'LLM' if match else 'heuristic'})")
     
     # Do not modify after here
     result = {
         "bid": bid,
-        "bid_generation_time_seconds": round(elapsed_time, 6)
+        "bid_generation_time_seconds": round(elapsed_time, 6),
+        # Tell the simulator whether the LLM or the heuristic fallback produced this bid, so that fallbacks are counted
+        "bid_source": "llm" if match else "heuristic_fallback"
     }
+    if not match:
+        result["fallback_reason"] = failure or "no bid_score in the LLM answer"
 
-    print(json.dumps(result))
+    print(json.dumps(result), flush=True)
+
+
+def main():
+    # Process one JSON request per line, so that the simulator can keep this script running as a persistent worker.
+    # EOF from the parent ends the worker. A single request without a trailing newline also works.
+    for input_data in sys.stdin:
+        if input_data.strip():
+            process_request(input_data)
 
 if __name__ == "__main__":
     main()

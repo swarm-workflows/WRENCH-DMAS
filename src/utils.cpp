@@ -9,6 +9,8 @@
 #include "info/JobLifecycle.h"
 #include "utils/utils.h"
 
+XBT_LOG_EXTERNAL_CATEGORY(swarm_dmas);
+
 using json = nlohmann::json;
 
 template <typename T>
@@ -129,7 +131,7 @@ get_all_bids_as_string(const std::map<std::shared_ptr<wrench::JobSchedulingAgent
   });
 
   std::ostringstream oss;
-  oss << std::fixed << std::setprecision(2) << "\"";
+  oss << std::fixed << std::setprecision(3) << "\"";
   for (auto it = ordered_bids.begin(); it != ordered_bids.end(); ++it) {
     oss << (*it)->second.first;
     if (std::next(it) != ordered_bids.end())
@@ -137,4 +139,65 @@ get_all_bids_as_string(const std::map<std::shared_ptr<wrench::JobSchedulingAgent
   }
   oss << "\"";
   return oss.str();
+}
+
+size_t
+count_top_bids(const std::map<std::shared_ptr<wrench::JobSchedulingAgent>, std::pair<double, double>>& all_bids)
+{
+  if (all_bids.empty())
+    return 0;
+  auto top_bid = std::max_element(all_bids.begin(), all_bids.end(), [](const auto& a, const auto& b) {
+                   return a.second.first < b.second.first;
+                 })->second.first;
+  return std::count_if(all_bids.begin(), all_bids.end(), [top_bid](const auto& b) { return b.second.first == top_bid; });
+}
+
+BidSourceStats& get_bid_source_stats()
+{
+  static BidSourceStats stats;
+  return stats;
+}
+
+void record_bid_source(const nlohmann::json& bidder_response, int job_id, const std::string& system_name)
+{
+  if (!bidder_response.contains("bid_source") || !bidder_response["bid_source"].is_string())
+    return; // this bidder does not report where its bids come from
+  const auto source = bidder_response["bid_source"].get<std::string>();
+  if (source == "llm") {
+    get_bid_source_stats().llm_bids++;
+  } else if (source == "heuristic_fallback" || source == "error") {
+    get_bid_source_stats().fallback_bids++;
+    XBT_CWARN(swarm_dmas, "Job #%d: the '%s' bidder fell back to the heuristic: %s", job_id, system_name.c_str(),
+              bidder_response.value("fallback_reason", std::string("unknown reason")).c_str());
+  } // "infeasible": no LLM call was needed
+}
+
+std::string load_bidder_prompt(const std::string& bidder_prompt_file)
+{
+  if (bidder_prompt_file.empty())
+    return "";
+  std::ifstream prompt_file(bidder_prompt_file);
+  if (!prompt_file.is_open())
+    throw std::runtime_error("Failed to open bidder prompt file: " + bidder_prompt_file);
+  std::string prompt((std::istreambuf_iterator<char>(prompt_file)), std::istreambuf_iterator<char>());
+  if (prompt.empty())
+    throw std::runtime_error("Bidder prompt file is empty: " + bidder_prompt_file);
+  return prompt;
+}
+
+nlohmann::json build_bidder_input(const std::shared_ptr<JobDescription>& job_description,
+                                  const std::shared_ptr<HPCSystemDescription>& hpc_system_description,
+                                  const std::shared_ptr<HPCSystemStatus>& hpc_system_status,
+                                  double runtime_fraction_lower_bound, const std::string& bidder_prompt)
+{
+  nlohmann::json input;
+  input["job_description"]              = job_description->to_json();
+  input["hpc_system_description"]       = hpc_system_description->to_json();
+  input["hpc_system_status"]            = hpc_system_status->to_json();
+  input["current_simulated_time"]       = wrench::S4U_Simulation::getClock();
+  input["runtime_fraction_lower_bound"] = runtime_fraction_lower_bound;
+  // Without a prompt, the LLM bidders fall back to the heuristic
+  if (!bidder_prompt.empty())
+    input["prompt"] = bidder_prompt;
+  return input;
 }

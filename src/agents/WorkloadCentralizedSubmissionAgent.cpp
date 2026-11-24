@@ -23,6 +23,7 @@ int WorkloadCentralizedSubmissionAgent::main()
   struct PendingDecision {
     std::shared_ptr<wrench::JobSchedulingAgent> target_agent;
     std::string bids;
+    size_t num_top_bids;
     std::shared_ptr<JobDescription> job_desc;
     double dispatch_time;
   };
@@ -57,13 +58,15 @@ int WorkloadCentralizedSubmissionAgent::main()
           if (decision.target_agent == nullptr) {
             WRENCH_INFO("Job #%d cannot run on any system (all bids = 0)", job_id);
             tracker_->getCommPort()->dputMessage(
-                new JobLifecycleTrackingMessage(job_id, "WorkloadCentralizedSubmissionAgent",
+                (new JobLifecycleTrackingMessage(job_id, "WorkloadCentralizedSubmissionAgent",
                                                 S4U_Simulation::getClock(),
-                                                JobLifecycleEventType::REJECT, decision.bids, "No feasible HPC system"));
+                                                JobLifecycleEventType::REJECT, decision.bids, "No feasible HPC system"))
+                    ->set_num_top_bids(decision.num_top_bids));
           } else {
             auto selected_system = decision.target_agent->get_hpc_system_name();
             WRENCH_DEBUG("Sending Job #%d to centrally-selected system '%s'", job_id, selected_system.c_str());
-            decision.target_agent->getCommPort()->dputMessage(new JobRequestMessage(decision.job_desc, false, true, decision.bids));
+            decision.target_agent->getCommPort()->dputMessage(new JobRequestMessage(decision.job_desc, false, true, decision.bids,
+                                                                                       decision.num_top_bids));
             tracker_->getCommPort()->dputMessage(new JobLifecycleTrackingMessage(
                 job_id, "WorkloadCentralizedSubmissionAgent", wrench::S4U_Simulation::getClock(),
                 JobLifecycleEventType::SUBMISSION, selected_system));
@@ -96,6 +99,7 @@ int WorkloadCentralizedSubmissionAgent::main()
         PendingDecision pending_dec;
         pending_dec.target_agent = decision.target_agent;
         pending_dec.bids = decision.bids;
+        pending_dec.num_top_bids = decision.num_top_bids;
         pending_dec.job_desc = next_job;
         pending_dec.dispatch_time = now + decision.decision_time;
         pending_decisions[job_id] = pending_dec;
@@ -104,6 +108,9 @@ int WorkloadCentralizedSubmissionAgent::main()
       }
     }
   }
+  // Always reported, so that failing bidders do not go unnoticed (details with --log=swarm_dmas.thres:warning)
+  std::cerr << "BidderFailures: " << scheduling_policy_->get_num_failed_bids() << " of "
+            << scheduling_policy_->get_num_requested_bids() << " bids (counted as 0)\n";
   return 0;
 }
 

@@ -37,7 +37,8 @@ protected:
 public:
   static std::shared_ptr<SchedulingPolicy> create_scheduling_policy(const std::string& policy_name,
                                                                     const std::string& python_script_name,
-                                                                    const std::string& bidder_prompt_file = "");
+                                                                    const std::string& bidder_prompt_file,
+                                                                    double runtime_fraction_lower_bound);
 
   void set_job_scheduling_agent_network(const std::vector<std::shared_ptr<wrench::JobSchedulingAgent>>& network)
   {

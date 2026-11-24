@@ -5,7 +5,7 @@ import time
 import logging
 import re
 from pathlib import Path
-from HeuristicBidding import compute_bid
+from HeuristicBidding import compute_bid, scaled_walltime, get_runtime_fraction_lower_bound
 import google.auth
 from google.auth.transport.requests import Request
 from anthropic import AnthropicVertex
@@ -56,7 +56,10 @@ def setup_logger(data):
 
     logger = logging.getLogger("llm_claude_bidder")
     logger.setLevel(logging.INFO)
-    logger.handlers.clear()
+    # A persistent worker handles many requests: its log file is chosen on the first request and kept afterwards.
+    # This is fine because a worker serves a single simulation run, hence a single workload.
+    if logger.handlers:
+        return logger
 
     file_handler = logging.FileHandler(log_file, mode="a")
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
@@ -112,16 +115,69 @@ def is_feasible_system(job_description, system_description):
 
     return True, ""
 
-def main():
-    
+# -----------------------------
+# System status shown to the LLM: adds the expected execution time of the job on this system,
+# computed exactly as the heuristic does, so that the LLM does not have to estimate it itself
+# -----------------------------
+def build_prompt_system_status(job_description, system_description, system_status, runtime_fraction_lower_bound):
+    prompt_system_status = dict(system_status)
+    prompt_system_status["estimated_runtime_seconds"] = scaled_walltime(
+        walltime_seconds=job_description.get("walltime"),
+        node_speed=system_description.get("node_speed"),
+        has_gpu=system_description.get("has_gpu"),
+        runtime_fraction_lower_bound=runtime_fraction_lower_bound,
+    )
+    return prompt_system_status
+
+
+# Keep one credentials object and Vertex client per long-lived Python worker.
+_cached_credentials = None
+_cached_client = None
+
+# Initialize lazily on the first feasible bid; reuse both afterward. The SDK refreshes credentials when they expire.
+# Also return the time spent creating the client (0 when it is reused), so that this one-time setup cost can be
+# excluded from the bid generation time: a deployed agent would keep its client alive.
+def get_client(logger):
+    global _cached_credentials, _cached_client
+
+    if _cached_client is not None:
+        return _cached_client, 0.0
+
+    oauth_t0 = time.perf_counter()
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    credentials.refresh(Request())
+    oauth_elapsed = time.perf_counter() - oauth_t0
+    logger.info("OAuth refresh time_seconds=%.6f", oauth_elapsed)
+
+    client = AnthropicVertex(
+        region=CLAUDE_LOCATION,
+        project_id=CLAUDE_PROJECT_ID,
+        credentials=credentials,
+        timeout=TIMEOUT,
+        max_retries=MAX_RETRIES,
+    )
+    _cached_credentials = credentials
+    _cached_client = client
+    setup_elapsed = time.perf_counter() - oauth_t0
+    logger.info("Client setup time_seconds=%.6f (excluded from bid generation time)", setup_elapsed)
+    return client, setup_elapsed
+
+
+def process_request(input_data):
     llm_response = ""
     job_description = None
     system_description = None
     system_status = None
-    logger=None
+    runtime_fraction_lower_bound = None
+    logger = None
+    request_start_time = time.perf_counter()
+    start_time = None
+    client_setup_time = 0.0
+    failure = None  # why the LLM bid could not be obtained, if so
 
     try:
-        input_data = sys.stdin.read()
         data = json.loads(input_data)
 
         logger = setup_logger(data)
@@ -130,7 +186,7 @@ def main():
         system_description = data["hpc_system_description"]
         system_status = data["hpc_system_status"]
         runtime_prompt = data.get("prompt")
-
+        runtime_fraction_lower_bound = get_runtime_fraction_lower_bound(data)
         start_time = time.perf_counter()
 
         job_id = job_description.get("job_id", "unknown")
@@ -142,49 +198,37 @@ def main():
             elapsed_time = time.perf_counter() - start_time
             result = {
                 "bid": 0.0,
-                "bid_generation_time_seconds": round(elapsed_time, 6)
+                "bid_generation_time_seconds": round(elapsed_time, 6),
+                "bid_source": "infeasible"
             }
             logger.info("Feasibility check failed (%s); returning zero bid", infeasible_reason)
             logger.info("Result: %s", json.dumps(result))
-            print(json.dumps(result))
+            print(json.dumps(result), flush=True)
             return
 
         # Step1: Prompt instructions
         if not isinstance(runtime_prompt, str) or not runtime_prompt.strip():
             raise ValueError("No prompt provided. Set 'bidder_prompt_file' in the experiment config.")
 
+        prompt_system_status = build_prompt_system_status(job_description, system_description, system_status,
+                                                          runtime_fraction_lower_bound)
         prompt = (
             runtime_prompt
             .replace("{job_description}", json.dumps(job_description, indent=2))
             .replace("{system_description}", json.dumps(system_description, indent=2))
-            .replace("{system_status}", json.dumps(system_status, indent=2))
+            .replace("{system_status}", json.dumps(prompt_system_status, indent=2))
         )
 
         # To save log space, only log Job id, system status, system name instead of full prompt
-        logger.info("Prompt for job %s submitted on system %s with status %s", job_description.get("job_id", "unknown"), system_description.get("name", "unknown"), system_status)
+        logger.info("Prompt for job %s submitted on system %s with status %s", job_description.get("job_id", "unknown"), system_description.get("name", "unknown"), prompt_system_status)
         # Uncomment the following line to log the full prompt, but be aware it can be very long 
         # logger.info("Prompt:\n%s", prompt)
 
         # Step2: Format prompt
         message = [{"role": "user", "content": prompt}]
 
-        # Measure (isolated) OAuth token acquisition/refresh explicitly
-        oauth_t0 = time.perf_counter()
-        credentials, _ = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
-        credentials.refresh(Request())
-        oauth_elapsed = time.perf_counter() - oauth_t0
-
-        logger.info("OAuth refresh time_seconds=%.6f", oauth_elapsed)
-        
-        # Step3: Setup Anthropic client on Vertex AI for all requests made by this client instance
-        client = AnthropicVertex(
-            region=CLAUDE_LOCATION,
-            project_id=CLAUDE_PROJECT_ID,
-            timeout=TIMEOUT,
-            max_retries=MAX_RETRIES,
-        )
+        # Feasibility checks return above, so only feasible bids initialize auth and the client.
+        client, client_setup_time = get_client(logger)
 
         # Step4: Get completion (LLM inference timing)
         llm_t0 = time.perf_counter()
@@ -203,22 +247,25 @@ def main():
         logger.info("Response:\n%s", llm_response)
 
     except Exception as e:
+        failure = str(e)
         if logger:
             logger.error("Claude bidder request failed; will fall back to heuristic: %s", e)
             # logger.exception("Claude bidder request failed; will fall back to heuristic")
         else:
             print(f"Claude bidder failed before logger setup: {e}", file=sys.stderr)
 
-    elapsed_time = time.perf_counter() - start_time
+    elapsed_time = time.perf_counter() - (start_time or request_start_time) - client_setup_time
 
     if job_description is None or system_description is None or system_status is None:
         result = {
             "bid": 0.0,
-            "bid_generation_time_seconds": round(elapsed_time, 6)
+            "bid_generation_time_seconds": round(elapsed_time, 6),
+            "bid_source": "error",
+            "fallback_reason": failure or "input unavailable"
         }
         if logger:
             logger.error("Input unavailable after exception; returning zero bid")
-        print(json.dumps(result))
+        print(json.dumps(result), flush=True)
         return
 
     # Step5: Response Parsing
@@ -226,7 +273,8 @@ def main():
     match = re.search(bid_score_pattern, llm_response)
 
     # Compute heuristic bid for logging and fallback
-    heuristic_bid = compute_bid(job_description, system_description, system_status)
+    heuristic_bid = compute_bid(job_description, system_description, system_status,
+                                runtime_fraction_lower_bound=runtime_fraction_lower_bound)
 
     if logger:
         logger.info(
@@ -237,7 +285,7 @@ def main():
         )
     
     # Step6: Fallback to the Heuristic bid if parsing fails
-    bid = float(match.group(1)) if match else heuristic_bid
+    bid = round(float(match.group(1)), 3) if match else heuristic_bid
 
     # Log which bid is being used (LLM vs Heuristic)
     if logger:
@@ -249,13 +297,24 @@ def main():
 
     result = {
         "bid": bid,
-        "bid_generation_time_seconds": round(elapsed_time, 6)
+        "bid_generation_time_seconds": round(elapsed_time, 6),
+        # Tell the simulator whether the LLM or the heuristic fallback produced this bid, so that fallbacks are counted
+        "bid_source": "llm" if match else "heuristic_fallback"
     }
+    if not match:
+        result["fallback_reason"] = failure or "no bid_score in the LLM answer"
 
     if logger:
         logger.info(json.dumps(result))
 
-    print(json.dumps(result))
+    print(json.dumps(result), flush=True)
+
+
+def main():
+    # Process one JSON request per line; EOF from the parent ends the persistent worker.
+    for input_data in sys.stdin:
+        if input_data.strip():
+            process_request(input_data)
 
 if __name__ == "__main__":
     main()

@@ -22,6 +22,7 @@
 #include "info/HPCSystemDescription.h"
 #include "info/HPCSystemStatus.h"
 #include "info/JobDescription.h"
+#include "utils/PythonRunner.h"
 #include "utils/utils.h"
 
 XBT_LOG_EXTERNAL_CATEGORY(swarm_dmas);
@@ -37,20 +38,40 @@ struct CentralizedSchedulingDecision {
   std::shared_ptr<wrench::JobSchedulingAgent> target_agent;
   double decision_time;
   std::string bids;
+  size_t num_top_bids; // number of systems sharing the highest bid
 };
 
 class CentralizedSchedulingPolicy {
   std::string python_script_name_;
+  std::string bidder_prompt_;
+  double runtime_fraction_lower_bound_;
+  // CEN keeps one persistent worker per system, so that each system reuses its own bidder process (and LLM client).
+  std::map<std::string, std::unique_ptr<PersistentPythonWorker>> python_workers_;
+  // Bids requested from the bidders, and those that failed (no response or no valid bid, counted as 0)
+  size_t num_requested_bids_ = 0;
+  size_t num_failed_bids_    = 0;
+
+  PersistentPythonWorker& worker_for_system(const std::string& system_name)
+  {
+    auto& worker = python_workers_[system_name];
+    if (!worker)
+      worker = std::make_unique<PersistentPythonWorker>(python_script_name_);
+    return *worker;
+  }
 
 public:
-  explicit CentralizedSchedulingPolicy(const std::string& python_script_name) : python_script_name_(python_script_name)
+  CentralizedSchedulingPolicy(const std::string& python_script_name, const std::string& bidder_prompt_file,
+                              double runtime_fraction_lower_bound)
+      : python_script_name_(python_script_name)
+      , bidder_prompt_(load_bidder_prompt(bidder_prompt_file))
+      , runtime_fraction_lower_bound_(runtime_fraction_lower_bound)
   {
   }
 
-  // Select the best system for a job by running the bidder script once per system in
-  // parallel — mirroring exactly what the decentralized agents do — and returning the
-  // winner together with the wall-clock duration of the parallel execution (which becomes
-  // the simulated DecisionTime for this job).
+  size_t get_num_requested_bids() const { return num_requested_bids_; }
+  size_t get_num_failed_bids() const { return num_failed_bids_; }
+
+  // Select the best system for a job by collecting one bid from each system.
   CentralizedSchedulingDecision
   select_best_system(const std::shared_ptr<JobDescription>& job_description,
                      const std::vector<HPCSystemInfo>& systems_info)
@@ -61,78 +82,73 @@ public:
     if (access(python_script_name_.c_str(), F_OK) != 0)
       throw std::runtime_error("Python script not found: " + python_script_name_);
 
-    int N = static_cast<int>(systems_info.size());
+    const int N = static_cast<int>(systems_info.size());
+    std::vector<std::string> responses(N);
+    std::vector<std::string> failures(N); // why no response was obtained from a system's worker, if so
 
-    // Per-subprocess file descriptors and pids
-    std::vector<int>    read_fds(N, -1);
-    std::vector<pid_t>  pids(N, -1);
+    std::vector<PersistentPythonWorker*> workers(N, nullptr);
 
-    auto wall_start = std::chrono::steady_clock::now();
-
-    // Fork one process per system and send each its individual input
+    // One persistent worker per system. Send to every system before waiting, so that bids are computed in parallel.
     for (int i = 0; i < N; i++) {
-      int to_child[2], from_child[2];
-      if (pipe(to_child) == -1 || pipe(from_child) == -1)
-        throw std::runtime_error("Failed to create pipes");
-
-      pids[i] = fork();
-      if (pids[i] == 0) {
-        dup2(to_child[0], STDIN_FILENO);
-        dup2(from_child[1], STDOUT_FILENO);
-        close(to_child[0]); close(to_child[1]);
-        close(from_child[0]); close(from_child[1]);
-        execlp("python3", "python3", python_script_name_.c_str(), nullptr);
-        perror("execlp failed");
-        exit(1);
+      auto input = build_bidder_input(job_description, systems_info[i].description, systems_info[i].status,
+                                      runtime_fraction_lower_bound_, bidder_prompt_);
+      try {
+        workers[i] = &worker_for_system(systems_info[i].description->get_name());
+        workers[i]->send_request(input);
+      } catch (const std::exception& e) {
+        workers[i]  = nullptr;
+        failures[i] = e.what();
       }
-      // Parent: close child-side ends, write input, close write end
-      close(to_child[0]);
-      close(from_child[1]);
-
-      nlohmann::json j;
-      j["job_description"]        = job_description->to_json();
-      j["hpc_system_description"] = systems_info[i].description->to_json();
-      j["hpc_system_status"]      = systems_info[i].status->to_json();
-      j["current_simulated_time"] = wrench::S4U_Simulation::getClock();
-      std::string input = j.dump();
-      write(to_child[1], input.c_str(), input.size());
-      close(to_child[1]); // signal EOF so the child can start computing
-
-      read_fds[i] = from_child[0];
     }
 
-    // Collect all responses (children are running in parallel).
-    // Use the Python-reported bid_generation_time_seconds — consistent with the decentralized
-    // path which also uses that field — rather than C++ wall-clock time which includes Python
-    // interpreter startup overhead (~100 ms) and would distort the simulation clock.
+    for (int i = 0; i < N; i++) {
+      if (workers[i] == nullptr)
+        continue;
+      try {
+        responses[i] = workers[i]->read_response().dump();
+      } catch (const std::exception& e) {
+        responses[i].clear();
+        failures[i] = e.what();
+      }
+    }
+
+    // Use the Python-reported bid time, excluding interpreter startup from simulated decision time.
     std::map<std::shared_ptr<wrench::JobSchedulingAgent>, std::pair<double, double>> all_bids;
     constexpr uint64_t SEED  = 42;
     auto job_id_val           = static_cast<uint64_t>(job_description->get_job_id());
     double decision_time      = 0.0; // max(bid_generation_time_seconds) across all systems
 
     for (int i = 0; i < N; i++) {
-      std::string response;
-      char buffer[256];
-      ssize_t count;
-      while ((count = read(read_fds[i], buffer, sizeof(buffer) - 1)) > 0) {
-        buffer[count] = '\0';
-        response += buffer;
-      }
-      close(read_fds[i]);
-      waitpid(pids[i], nullptr, 0);
-
+      const auto& sys_name = systems_info[i].description->get_name();
+      // A system without a valid bid bids 0 (and does not update decision_time), but the failure is reported.
       double bid = 0.0;
-      try {
-        nlohmann::json result = nlohmann::json::parse(response);
-        XBT_CVERB(swarm_dmas, "Centralized bid from %s: %s",
-                  systems_info[i].description->get_name().c_str(), result.dump().c_str());
-        if (result.contains("bid") && result["bid"].is_number())
-          bid = result["bid"].get<double>();
-        if (result.contains("bid_generation_time_seconds") && result["bid_generation_time_seconds"].is_number())
-          decision_time = std::max(decision_time, result["bid_generation_time_seconds"].get<double>());
-      } catch (...) { /* treat parse error as bid = 0, no update to decision_time */ }
+      num_requested_bids_++;
+      if (!failures[i].empty()) {
+        num_failed_bids_++;
+        XBT_CWARN(swarm_dmas, "Job #%d: no bid from the '%s' bidder (bid = 0): %s", job_description->get_job_id(),
+                  sys_name.c_str(), failures[i].c_str());
+      } else {
+        try {
+          nlohmann::json result = nlohmann::json::parse(responses[i]);
+          XBT_CVERB(swarm_dmas, "Centralized bid from %s: %s", sys_name.c_str(), result.dump().c_str());
+          record_bid_source(result, job_description->get_job_id(), sys_name);
+          if (result.contains("bid") && result["bid"].is_number())
+            bid = result["bid"].get<double>();
+          else {
+            num_failed_bids_++;
+            XBT_CWARN(swarm_dmas, "Job #%d: invalid response from the '%s' bidder (bid = 0): %s",
+                      job_description->get_job_id(), sys_name.c_str(), result.dump().c_str());
+          }
+          if (result.contains("bid_generation_time_seconds") && result["bid_generation_time_seconds"].is_number())
+            decision_time = std::max(decision_time, result["bid_generation_time_seconds"].get<double>());
+        } catch (const std::exception& e) {
+          num_failed_bids_++;
+          XBT_CWARN(swarm_dmas, "Job #%d: unparsable response from the '%s' bidder (bid = 0): %s",
+                    job_description->get_job_id(), sys_name.c_str(), e.what());
+        }
+      }
 
-      const auto& sys_name   = systems_info[i].description->get_name();
+
       uint64_t mixed         = SEED ^ (job_id_val * 6364136223846793005ULL)
                                     ^ std::hash<std::string>{}(sys_name);
       std::mt19937_64 rng(mixed);
@@ -141,17 +157,20 @@ public:
       all_bids[systems_info[i].agent] = {bid, tie_breaker};
     }
 
-    (void)wall_start; // kept in case wall-clock measurement is needed in future
-    auto bids = get_all_bids_as_string(all_bids);
+    auto bids         = get_all_bids_as_string(all_bids);
+    auto num_top_bids = count_top_bids(all_bids);
 
     // Same comparator as PythonBiddingSchedulingPolicy::determine_bid_winner
     auto max_it = std::max_element(all_bids.begin(), all_bids.end(),
                                    [](const auto& a, const auto& b) { return a.second < b.second; });
 
     if (max_it->second.first <= 0.0)
-      return {nullptr, decision_time, bids};
+      return {nullptr, decision_time, bids, num_top_bids};
 
-    return {max_it->first, decision_time, bids};
+    if (num_top_bids > 1)
+      XBT_CINFO(swarm_dmas, "Job #%d: %zu systems share the highest bid, the tie-breaker placed it on '%s'",
+                job_description->get_job_id(), num_top_bids, max_it->first->get_hpc_system_name().c_str());
+    return {max_it->first, decision_time, bids, num_top_bids};
   }
 };
 

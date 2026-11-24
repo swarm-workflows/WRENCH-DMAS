@@ -2,7 +2,6 @@
 #define PYTHON_BIDDING_SCHEDULING_POLICY_H
 
 #include <algorithm>
-#include <fstream>
 #include <iostream>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -15,26 +14,27 @@
 #include "agents/JobSchedulingAgent.h"
 #include "messages/ControlMessages.h"
 #include "policies/SchedulingPolicy.h"
+#include "utils/PythonRunner.h"
+#include "utils/utils.h"
 
 XBT_LOG_EXTERNAL_CATEGORY(swarm_dmas);
 
 class PythonBiddingSchedulingPolicy : public SchedulingPolicy {
   std::string python_script_name_;
+  // This policy belongs to one machine agent, so its Python worker is reused across that agent's bids.
+  PersistentPythonWorker python_worker_;
   std::string bidder_prompt_;
+  double runtime_fraction_lower_bound_;
 
 public:
-  PythonBiddingSchedulingPolicy(const std::string& python_script_name, const std::string& bidder_prompt_file)
-      : SchedulingPolicy(), python_script_name_(python_script_name)
+  PythonBiddingSchedulingPolicy(const std::string& python_script_name, const std::string& bidder_prompt_file,
+                                double runtime_fraction_lower_bound)
+      : SchedulingPolicy()
+      , python_script_name_(python_script_name)
+      , python_worker_(python_script_name_)
+      , bidder_prompt_(load_bidder_prompt(bidder_prompt_file))
+      , runtime_fraction_lower_bound_(runtime_fraction_lower_bound)
   {
-    if (!bidder_prompt_file.empty()) {
-      std::ifstream prompt_file(bidder_prompt_file);
-      if (!prompt_file.is_open())
-        throw std::runtime_error("Failed to open bidder prompt file: " + bidder_prompt_file);
-
-      bidder_prompt_.assign((std::istreambuf_iterator<char>(prompt_file)), std::istreambuf_iterator<char>());
-      if (bidder_prompt_.empty())
-        throw std::runtime_error("Bidder prompt file is empty: " + bidder_prompt_file);
-    }
   }
 
   void broadcast_job_description(const std::string& agent_name,
@@ -51,72 +51,21 @@ public:
                                         const std::shared_ptr<HPCSystemDescription>& hpc_system_description,
                                         const std::shared_ptr<HPCSystemStatus>& hpc_system_status) override
   {
-    int to_python[2];   // C++ writes to python
-    int from_python[2]; // C++ reads from python
+    auto input = build_bidder_input(job_description, hpc_system_description, hpc_system_status,
+                                    runtime_fraction_lower_bound_, bidder_prompt_);
 
-    if (pipe(to_python) == -1 || pipe(from_python) == -1) {
-      throw std::runtime_error("Failed to create pipes");
-    }
-
-    if (access(python_script_name_.c_str(), F_OK) != 0)
-      throw std::runtime_error("Python script not found");
-
-    pid_t pid = fork();
-    if (pid == 0) {
-      // External Python process
-      dup2(to_python[0], STDIN_FILENO);    // Read from C++
-      dup2(from_python[1], STDOUT_FILENO); // Write to C++
-
-      close(to_python[1]);
-      close(from_python[0]);
-      close(to_python[0]);
-      close(from_python[1]);
-
-      execlp("python3", "python3", python_script_name_.c_str(), nullptr);
-      perror("execlp failed");
-      exit(1);
-    } else {
-      // C++ process
-      close(to_python[0]);
-      close(from_python[1]);
-
-      // Serialize input objects to JSON
-      nlohmann::json j;
-      j["job_description"]        = job_description->to_json();
-      j["hpc_system_description"] = hpc_system_description->to_json();
-      j["hpc_system_status"]      = hpc_system_status->to_json();
-      j["current_simulated_time"] = wrench::S4U_Simulation::getClock();
-      if (!bidder_prompt_.empty())
-        j["prompt"] = bidder_prompt_;
-
-      std::string jsonStr = j.dump();
-      write(to_python[1], jsonStr.c_str(), jsonStr.size());
-      close(to_python[1]); // Signal EOF to python
-
-      // Read response from python
-      std::string response;
-      char buffer[256];
-      ssize_t count;
-      while ((count = read(from_python[0], buffer, sizeof(buffer) - 1)) > 0) {
-        buffer[count] = '\0';
-        response += buffer;
+    try {
+      nlohmann::json result = python_worker_.request(input);
+      XBT_CVERB(swarm_dmas, "%s", result.dump().c_str());
+      record_bid_source(result, job_description->get_job_id(), hpc_system_description->get_name());
+      if (not result.contains("bid_generation_time_seconds") || not result["bid_generation_time_seconds"].is_number())
+        throw std::runtime_error("Invalid response: 'bid_generation_time_seconds' not found or not a number");
+      if (result.contains("bid") && result["bid"].is_number()) {
+        return std::make_pair(result["bid"].get<double>(), result["bid_generation_time_seconds"].get<double>());
       }
-      close(from_python[0]);
-      waitpid(pid, nullptr, 0);
-
-      try {
-        nlohmann::json result = nlohmann::json::parse(response);
-        XBT_CVERB(swarm_dmas, "%s", result.dump().c_str());
-        if (not result.contains("bid_generation_time_seconds") || not result["bid_generation_time_seconds"].is_number())
-          throw std::runtime_error("Invalid response: 'bid_generation_time_seconds' not found or not a number");
-        if (result.contains("bid") && result["bid"].is_number()) {
-          return std::make_pair(result["bid"].get<double>(), result["bid_generation_time_seconds"].get<double>());
-        } else {
-          throw std::runtime_error("Invalid response: 'bid' not found or not a number");
-        }
-      } catch (const std::exception& e) {
-        throw std::runtime_error(std::string("Failed to parse response: ") + e.what());
-      }
+      throw std::runtime_error("Invalid response: 'bid' not found or not a number");
+    } catch (const std::exception& e) {
+      throw std::runtime_error(std::string("Python bidder failed: ") + e.what());
     }
   }
 
